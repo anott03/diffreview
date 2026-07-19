@@ -1,0 +1,28 @@
+/*
+ * Kumo styles must come BEFORE tailwindcss so its theme tokens register first,
+ * and Tailwind v4 needs @source to discover utility classes inside kumo's dist
+ * (node_modules is not scanned by default).
+ */
+@source "../../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@cloudflare/kumo/styles/tailwind";
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-kumo-base);
+  color: var(--text-color-kumo-default);
+}
+
+/* Diff row tints — slightly softened versions of kumo's status tints. */
+.diff-add {
+  background-color: color-mix(in oklab, var(--color-kumo-success-tint) 70%, transparent);
+}
+
+.diff-del {
+  background-color: color-mix(in oklab, var(--color-kumo-danger-tint) 70%, transparent);
+}

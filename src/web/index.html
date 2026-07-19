@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>diffreview</title>
+    <script>
+      // Follow system preference; default dark. Kumo theming is driven by
+      // data-mode on the root element.
+      document.documentElement.dataset.mode = matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark";
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

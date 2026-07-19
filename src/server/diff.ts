@@ -78,7 +78,12 @@ export function parseGitDiff(diffText: string): DiffFile[] {
     const path = newPath ?? oldPath ?? "";
     const isBinary =
       binaryPaths.has(path) ||
-      (hunks.length === 0 && !raw.new && !raw.deleted && raw.additions === 0 && raw.deletions === 0);
+      (hunks.length === 0 &&
+        !raw.new &&
+        !raw.deleted &&
+        status !== "renamed" &&
+        raw.additions === 0 &&
+        raw.deletions === 0);
 
     return {
       oldPath,

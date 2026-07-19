@@ -17,7 +17,7 @@
     "dev:web": "vite",
     "build": "pnpm build:web && pnpm build:server",
     "build:web": "vite build",
-    "build:server": "esbuild src/server/cli.ts src/mcp/server.ts --bundle --platform=node --format=esm --packages=external --outdir=dist --banner:js='#!/usr/bin/env node'",
+    "build:server": "esbuild src/server/cli.ts src/mcp/server.ts --bundle --platform=node --format=esm --splitting --packages=external --outdir=dist --banner:js='#!/usr/bin/env node'",
     "start": "node dist/server/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

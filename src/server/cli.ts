@@ -3,10 +3,10 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import pkg from "../../package.json";
 import { DiffWatcher, getRepoRoot } from "./git";
-import { createApp, startServer } from "./index";
+import { createApp, findWebRoot, startServer } from "./index";
 import { dbPathForRepo } from "./paths";
 import { clearSession, writeSession } from "./session";
-import { CommentStore } from "./store";
+import type { CommentStore } from "./store";
 
 const USAGE = `Usage: diffreview [repoPath] [options]
 
@@ -20,6 +20,7 @@ Options:
   -p, --port <n>    Port to listen on (default: 4777)
       --open        Open the UI in a browser
   -h, --help        Show this help
+  -v, --version     Show version
 `;
 
 function fail(message: string): never {
@@ -34,12 +35,13 @@ async function main(): Promise<void> {
       port: { type: "string", short: "p", default: "4777" },
       open: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
+      version: { type: "boolean", short: "v", default: false },
     },
     allowPositionals: true,
   });
 
-  if (values.help) {
-    console.log(USAGE);
+  if (values.help || values.version) {
+    console.log(values.version ? `diffreview ${pkg.version}` : USAGE);
     return;
   }
 
@@ -56,15 +58,21 @@ async function main(): Promise<void> {
     fail((err as Error).message);
   }
 
-  const store = new CommentStore(dbPathForRepo(repoRoot));
+  // Resolve all filesystem and SQLite access after argument validation so
+  // `diffreview --help` is silent and fast.
+  const { CommentStore } = await import("./store.js");
+  const store = new CommentStore(dbPathForRepo(repoRoot)) as CommentStore;
   const watcher = new DiffWatcher(repoRoot, 2000);
   const app = createApp({ repoRoot, store, watcher });
 
   let server: Awaited<ReturnType<typeof startServer>>;
   try {
     server = await startServer(app, port);
-  } catch {
-    fail(`port ${port} is already in use (another diffreview instance running? try --port)`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    fail(message.toLowerCase().includes("eaddrinuse")
+      ? `port ${port} is already in use (another diffreview instance running? try --port)`
+      : `could not start server: ${message}`);
   }
 
   writeSession({ port, pid: process.pid, repoRoot, startedAt: Date.now() });
@@ -90,10 +98,13 @@ async function main(): Promise<void> {
   watcher.start();
 
   const url = `http://127.0.0.1:${port}`;
+  const uiLine = findWebRoot()
+    ? `UI:         ${url}`
+    : `UI:         not built — run \`pnpm build\` to serve it from ${url}\n              (dev mode: open the vite dev server at http://localhost:5173)`;
   console.log(`diffreview ${pkg.version}
 
   Reviewing:  ${repoRoot}
-  UI:         ${url}
+  ${uiLine}
   Comments:   ${dbPathForRepo(repoRoot)}
 
   opencode MCP config (add to opencode.json):

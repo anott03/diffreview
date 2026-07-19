@@ -104,6 +104,17 @@ describe("parseGitDiff", () => {
     expect(bin.hunks).toHaveLength(0);
   });
 
+  it("does not mark a pure rename as binary", () => {
+    const renameOnly = parseGitDiff(`diff --git a/old.txt b/new.txt
+similarity index 100%
+rename from old.txt
+rename to new.txt
+`);
+    expect(renameOnly).toHaveLength(1);
+    expect(renameOnly[0]!.status).toBe("renamed");
+    expect(renameOnly[0]!.isBinary).toBe(false);
+  });
+
   it("returns an empty array for empty input", () => {
     expect(parseGitDiff("")).toEqual([]);
   });

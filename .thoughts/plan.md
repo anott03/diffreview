@@ -184,51 +184,124 @@ Verified end-to-end with a newline-delimited JSON-RPC stdio smoke script against
   - [x] `mark_comment_addressed` `{id, note?}` → PATCH status=addressed + note; returns updated comment
 - [x] Agent-oriented tool descriptions ("fix the code first, then mark addressed with a note").
 
-## Phase 4 — Web UI (`src/web/`)
+## Phase 4 — Web UI (`src/web/`) ✅ COMPLETE (2026-07-19)
 
-### 4.0 Setup
-- `src/web/styles.css` — **order matters**:
-  ```css
-  @source "../../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
-  @import "@cloudflare/kumo/styles/tailwind";
-  @import "tailwindcss";
-  ```
-  plus two custom diff tokens using `light-dark()` (e.g. `--diff-add-bg`, `--diff-del-bg`) applied to row backgrounds — mirrors Kumo's token approach.
-- `index.html`: `<html data-mode="dark">` (or follow `prefers-color-scheme` via tiny inline script), `<div id="root">`.
-- Vite config: root `src/web`, `server.proxy: { "/api": "http://127.0.0.1:4777" }`, build outDir `../../dist/web`.
+Implemented: `vite.config.ts`, `index.html`, `styles.css`, `main.tsx`, `api.ts`, `App.tsx`,
+`FileList.tsx`, `DiffView.tsx`, `DiffTable.tsx` (unified + split), `CommentEditor.tsx`,
+`CommentThread.tsx`, `EmptyState.tsx`.
+Verified: `pnpm typecheck` clean; `vite build` clean (4620 modules); prod server serves built UI,
+API, SPA fallback (html for non-/api), JSON 404 for unknown /api; built CSS contains both kumo
+utilities (`.bg-kumo-base`, `.text-kumo-subtle`, `.bg-kumo-success-tint`) and custom `.diff-add`/`.diff-del`
+(the `@source` wiring works); vite dev server proxies `/api` → 4777.
 
-### 4.1 `api.ts`
-- Typed fetch wrappers for all routes + `useEventSource` hook returning `{diffVersion, commentsVersion}` bumped on SSE events; React Query not needed — simple `useEffect` refetch on version bump.
+### Phase 4 decisions
+- **Bugfix (post-eyeball, 2026-07-19): blank page in dev.** `findWebRoot()` resolved `../web`
+  from `src/server/index.ts` → matched the *source* `src/web`, so the dev server on 4777 served
+  `index.html` pointing at raw `.tsx` (browser: MIME `application/octet-stream`, blank page).
+  Fixes: (1) web root now requires `index.html` **and** `assets/` (only a vite build has both);
+  (2) the not-built placeholder is a proper 404 and names the dev URL (`http://localhost:5173`);
+  (3) the CLI banner is dev-aware — prints "UI: not built … (dev mode: open the vite dev server
+  at http://localhost:5173)" when there's no build. Verified: dev(tsx) `/` → 404 placeholder;
+  prod(dist) `/` → 200, JS assets served `text/javascript`.
+- **Bugfix (post-eyeball, 2026-07-19): `/api.ts` proxied in dev.** Vite's proxy prefix
+  `"/api"` also matched the module URL for `src/web/api.ts` (`/api.ts`), forwarding it to the
+  backend and producing a 404/blank app. Proxy now uses `"/api/"` with a trailing slash. Verified:
+  `/api.ts` → `200 text/javascript`; `/api/meta` still proxies → `200 application/json`.
+- **Kumo `Sidebar` intentionally not used** — it's a full nav-panel system (providers, collapse
+  modes); a plain `<aside>` with kumo tokens is the right weight for a file list. Documented as a
+  deliberate deviation from the plan.
+- **No kumo `Tooltip` in the per-line hot path** — hundreds of Base UI instances on large diffs
+  isn't worth it; gutter buttons use `title` attrs. Kumo components used: `Button`, `Badge`,
+  `Tabs`, `InputArea`, `Empty`, `Loader`, `Toasty` (+ `useKumoToastManager`), `cn`.
+- **Diff tints are `color-mix()` of kumo's own `--color-kumo-success-tint`/`--color-kumo-danger-tint`**
+  (not bespoke light-dark vars as originally planned) — fully token-native, adapts with data-mode.
+- **Outdated-comments group uses native `<details>`** instead of kumo Collapsible (simpler; fine).
+- **Kumo API findings (kumo 2.8.0)**: icon-only `shape="square"` Buttons **require `aria-label`**;
+  toast is `Toasty` + `useKumoToastManager().add({title, variant})`; `TooltipProvider` is a
+  standalone export (no `Tooltip.Provider` namespace) — dropped since v1 uses `title` attrs.
+- **Phosphor 2.1.10**: `FilePencil`/`FileArrowRight` don't exist → using `NotePencil`/`ArrowRight`.
+- **TS 7 needs `src/web/vite-env.d.ts`** (`/// <reference types="vite/client" />`) for the CSS
+  side-effect import.
+- **`vitest.config.ts` added** — vitest was reading `vite.config.ts`'s `root: "src/web"` and
+  finding zero tests. Separate config with explicit `include: ["src/**/*.test.ts"]` (vitest
+  prefers `vitest.config.ts` over `vite.config.ts`).
+- **Agent-activity toast**: open→addressed transitions between comment snapshots (which only the
+  MCP/PATCH path can produce) trigger "N comment(s) marked addressed by agent".
+- Test-harness note: backgrounded dev servers need `setsid`+`disown` to survive across shell
+  invocations; user-facing `pnpm dev` (concurrently, foreground) is unaffected.
+- Remaining manual step: browser eyeball pass (user).
+
+### 4.0 Setup ✅
+- [x] `src/web/styles.css` — kumo-before-tailwind import order + `@source` directive.
+- [x] `index.html` — `data-mode` follows `prefers-color-scheme`, default dark.
+- [x] Vite config: root `src/web`, `/api` proxy → 4777, outDir `dist/web`.
+
+### 4.1 `api.ts` ✅
+- [x] Typed fetch wrappers + `useServerEvents` SSE hook (invalidation → refetch).
 
 ### 4.2 Components
-- **App.tsx**: header (repo name, branch badge, +/− totals, open/addressed counts, unified/split Tabs, refresh), Kumo `Sidebar` w/ FileList, main DiffView, `Toast` region. `data-mode` wrapper, `bg-kumo-base text-kumo-default` shell.
-- **FileList.tsx**: each file: status icon (phosphor), path, `+x/−y`, open-comment Badge; filter toggle "hide addressed"; click selects file.
-- **DiffView.tsx**: unified | split (Kumo `Tabs`).
-  - Unified rows: `[+ btn][old#][new#][+/−/space][code]`.
-  - Split rows: left = old side, right = new side; aligned add/del/context pairing; comment gutter on both sides.
-  - Hover a line → `+` button (Kumo `Button` size sm + `Tooltip`) in gutter → opens CommentEditor below line (full-width row in unified; under the side's line in split).
-- **CommentEditor.tsx**: Kumo `Input`/textarea + primary `Button` "Comment" + ghost "Cancel". Cmd/Ctrl+Enter submits.
-- **CommentThread.tsx**: below anchored line: author Badge ("you"/"agent"), body, timestamp; status Badge "addressed" + agent note when set; user actions: reopen, delete. Outdated threads render in a collapsed "Outdated" group at file top.
-- **EmptyState.tsx**: Kumo `Empty` — "Working tree clean" when no files.
-- All styling with kumo semantic tokens only: `bg-kumo-base/elevated/recessed`, `text-kumo-default/subtle`, `border-kumo-line`; diff add/del rows use the two custom CSS vars. No raw Tailwind colors, no `dark:` variants.
+- **App.tsx** ✅: header (repo, branch badge, +/−, open/addressed counts, layout Tabs), aside + main, SSE wiring, agent-activity toasts.
+- **FileList.tsx** ✅: status icon, path, +/−, open-comment badge, selection.
+- **DiffView.tsx** ✅: per-file header, outdated `<details>` group, unified | split via Kumo `Tabs`.
+- **DiffTable.tsx** ✅: unified rows `[+ btn][old#][new#][code]`; split rows with paired del/add columns, comment gutters both sides; inline threads/editor under anchored rows.
+- **CommentEditor.tsx** ✅: Kumo `InputArea` (autoResize) + primary/ghost `Button`; ⌘/Ctrl+Enter submits, Esc cancels; stays open on error.
+- **CommentThread.tsx** ✅: author/status/outdated badges, agent note display, reopen + delete actions, relative time.
+- **EmptyState.tsx** ✅: Kumo `Empty` — "Working tree clean".
 
-## Phase 5 — Packaging
+## Phase 5 — Packaging ✅ COMPLETE (2026-07-19)
 
-- esbuild bundle server+mcp (`--packages=external`), shebang `#!/usr/bin/env node` preserved via esbuild `banner`.
-- `vite build` → `dist/web`.
-- `pnpm link --global` → verify `diffreview --help` and `diffreview-mcp` on PATH.
-- README.md: install, run, opencode config block, screenshots placeholder.
-- AGENTS.md: architecture, commands, conventions (kumo token rules, single-writer store rule).
+- [x] esbuild bundle server+mcp (`--packages=external`), shebang preserved via `banner`.
+- [x] Added `--splitting` so `await import("./store.js")` stays a separate chunk; this lets
+      `diffreview --help` / `--version` run before `node:sqlite` is loaded (no experimental warning).
+- [x] Added `-v, --version` CLI option.
+- [x] Refined server startup error handling to distinguish `EADDRINUSE` from other failures.
+- [x] `vite build` → `dist/web`.
+- [x] `pnpm link --global` verified: both `diffreview` and `diffreview-mcp` are on PATH, start
+      correctly, serve built UI, and hit the SQLite-backed API. Unlinked afterwards to keep the
+      environment clean.
+- [x] README.md: install, run, opencode config block, development commands.
+- [x] AGENTS.md: architecture, commands, conventions (kumo token rules, single-writer store rule).
 
-## Phase 6 — Verification (end-to-end)
+### Phase 5 decisions
+- **`--splitting` required for lazy chunk**: with plain `--bundle`, esbuild hoisted the dynamic
+  `import("./store.js")` into the cli entry chunk, so `node:sqlite` loaded even for `--help`.
+  `--splitting` leaves store in its own chunk (`dist/store-<hash>.js`) and only evaluates it after
+  argument parsing. Verified: `diffreview --help` no longer prints SQLite warning.
+- **Error messages**: binding to an in-use port now says exactly that; other failures pass through
+  the underlying message.
+- **No `files` field added** — package is `private`, so `pnpm link` uses the whole directory; adding
+  `files` is only relevant for npm publishing, which is out of scope.
 
-1. **Fixture repo**: `/tmp/diffreview-fixture` with committed file, then: modify it, stage a change, delete a file, add untracked text + binary file.
-2. Start server against fixture → `curl` every route; check untracked synthesis + rename handling in `/api/diff`.
-3. Comment lifecycle via curl: create → appears with `outdated:false` → edit fixture line to make it stale → `outdated:true` → PATCH addressed → DELETE.
-4. SSE: `curl -N /api/events` while touching files + mutating comments → both event types observed.
-5. MCP: hand-rolled stdio JSON-RPC smoke script (`initialize`, `tools/list`, `tools/call` each of the 4 tools) against the running instance; also confirm clean error when server is down.
-6. UI: `pnpm dev` → browser pass — toggle unified/split, comment on old+new lines in both layouts, staleness group, agent-marked badge after MCP call arrives live via SSE, kumo styles render correctly (dialog/sidebar centered = `@source` working).
-7. `pnpm build` + run from `dist/` (prod path), `pnpm test` green.
+## Phase 6 — Verification (end-to-end) ✅ COMPLETE (2026-07-19)
+
+All planned checks executed against `/tmp/diffreview-fixture`. One small bug was fixed during the run.
+
+1. [x] **Fixture repo**: `alpha.txt` modified (unstaged), `beta.txt` modified + staged, `gamma.txt`
+   deleted, `original.txt` renamed to `renamed_final.txt`, `delta.txt` untracked text added,
+   `binary.bin` untracked binary added.
+2. [x] **Route check**: `GET /api/meta` returned correct branch/totals; `GET /api/diff` showed all
+   six files with correct `status` and `isBinary`. Rename detected as `renamed`.
+3. [x] **Comment lifecycle**: created comment on `alpha.txt` new line 1 (`outdated:false`) → edited
+   the line → after poll refetch `outdated:true` → `PATCH` to `status=addressed` with note
+   persisted → `DELETE` returned 204, list empty.
+4. [x] **SSE**: `curl -N /api/events` observed `event: diff` after file change and `event: comments`
+   after comment creation.
+5. [x] **MCP smoke**: stdio JSON-RPC script exercised `initialize`, `tools/list`,
+   `get_diff_summary`, `get_diff`, `list_review_comments`, `mark_comment_addressed` (real id and
+   bad id). With the server down, `get_diff_summary` returned a clean error message pointing at
+   `diffreview <repo>`.
+6. [x] **UI serving**: prod server (`http://127.0.0.1:5888`) returned built HTML + CSS assets with
+   correct MIME types. Vite dev server (`http://localhost:5173`) returned `index.html` and served
+   `/api.ts` as JS. Interactive click-through (toggle layouts, inline comments, staleness group) was
+   not automated and remains a manual step for the user.
+7. [x] **`pnpm build` + run from `dist/` + `pnpm test`**: green.
+
+### Phase 6 bugfix: pure rename incorrectly marked binary
+
+During route verification, `original.txt -> renamed_final.txt` showed `isBinary:true` despite being a
+100% text rename. Root cause in `src/server/diff.ts`: the fallback `isBinary` rule that catches empty
+content also caught pure renames (no hunks + no additions/deletions). Added `status !== "renamed"` to
+that clause; pure renames now show `isBinary:false`. Added a unit test; suite now **31 passing**.
 
 ## Test matrix (vitest)
 

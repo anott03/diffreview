@@ -43,10 +43,17 @@ function zodError(error: z.ZodError): string {
   return error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
 }
 
-/** Built UI lives at dist/web relative to the bundled server (dist/server). */
-function findWebRoot(): string | null {
+/**
+ * Built UI lives at dist/web relative to the bundled server (dist/server).
+ * Only accept a directory that looks like a vite build (index.html + assets/):
+ * in dev, `../web` resolves to the *source* src/web, which must NOT be served
+ * (browsers can't execute raw .tsx — blank page + MIME type errors).
+ */
+export function findWebRoot(): string | null {
   const candidate = fileURLToPath(new URL("../web", import.meta.url));
-  return existsSync(candidate) ? candidate : null;
+  return existsSync(join(candidate, "index.html")) && existsSync(join(candidate, "assets"))
+    ? candidate
+    : null;
 }
 
 export function createApp(deps: AppDeps) {
@@ -173,7 +180,11 @@ export function createApp(deps: AppDeps) {
       return c.json({ error: "not found" } satisfies ApiErrorResponse, 404);
     }
     if (indexHtml) return c.html(indexHtml); // SPA fallback
-    return c.text("diffreview UI is not built. Run `pnpm build`, or use `pnpm dev:web` during development.");
+    return c.text(
+      "diffreview UI is not built. Run `pnpm build` to serve it from this port, " +
+        "or during development open the vite dev server at http://localhost:5173 (`pnpm dev`).",
+      404,
+    );
   });
 
   return app;
@@ -183,6 +194,9 @@ export function startServer(app: Hono, port: number): Promise<ReturnType<typeof 
   const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.once("listening", () => resolve(server));
+    server.once("listening", () => {
+      server.removeListener("error", reject);
+      resolve(server);
+    });
   });
 }
