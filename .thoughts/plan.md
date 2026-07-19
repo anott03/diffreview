@@ -156,16 +156,33 @@ E2E on a fixture repo verified: meta, diff (modified/staged/unstaged/deleted/unt
   "diffreview": { "type": "local", "command": ["diffreview-mcp"], "enabled": true }
   ```
 
-## Phase 3 — MCP server (`src/mcp/server.ts`)
+## Phase 3 — MCP server (`src/mcp/server.ts`) ✅ COMPLETE (2026-07-19)
 
-- `@modelcontextprotocol/sdk`: `McpServer` + `StdioServerTransport`.
-- Discovery: `git rev-parse --show-toplevel` from cwd → hash → read session file → base URL `http://127.0.0.1:<port>`; verify `GET /api/meta` matches repoRoot; if missing/stale → tools return error text: "No diffreview instance for this repo. Ask the user to run `diffreview` in the repo root."
-- Tools (zod schemas):
-  - `get_diff_summary` → `{branch, files: [{path, status, additions, deletions, openComments}]}`
-  - `get_diff` `{file?: string}` → structured files/hunks/lines (raw unified text for one file if `file` given, to save tokens)
-  - `list_review_comments` `{status?: "open"|"addressed"|"all", file?: string}` → comments incl. `outdated`, `lineText`, `body`
-  - `mark_comment_addressed` `{id: string, note?: string}` → PATCH status=addressed + note; returns updated comment
-- Tool descriptions written for agents: "Comments were left by a human reviewing your uncommitted changes. Address each by editing code, then call mark_comment_addressed with a note describing the fix."
+Implemented: `server.ts` (4 tools, stdio), `client.ts` (session discovery + HTTP), `render.ts` (unified-diff text renderer, unit-tested).
+Verified end-to-end with a newline-delimited JSON-RPC stdio smoke script against a live instance:
+- `initialize` + `tools/list` → all 4 tools registered (SDK 1.29 + zod v4 raw shapes work fine)
+- `get_diff_summary` → branch/totals/per-file stats with open-comment counts
+- `get_diff` → all files, single file, unknown-file → `isError` with guidance
+- `list_review_comments` → open default, status filter works
+- `mark_comment_addressed` → bogus id → `isError`; real id → status+note persisted and visible via `status=addressed`; SDK input validation catches missing args
+- no running instance → `isError` with actionable message ("Ask the user to start one with: diffreview <path>")
+- `pnpm build:server` bundles cleanly (top-level await OK in ESM output, shebang banner present)
+
+### Phase 3 decisions
+- **`get_diff` returns unified-diff *text*, not structured JSON** — the format agents parse best and far more token-efficient; 100KB truncation guard pointing at the `file` filter.
+- **`list_review_comments` defaults to `status=open`** (the agent's work queue); timestamps rendered ISO 8601.
+- **Session validation is three-layered**: pid alive → port answering → `repoRoot` match. Every failure mode has a distinct, agent-actionable error message.
+- **MCP server logs to stderr only** — stdout is reserved for the protocol channel.
+- Smoke script was throwaway (`/tmp/mcp-smoke.mjs`, deleted); durable coverage is `render.test.ts` + the HTTP-layer tests.
+
+- [x] `@modelcontextprotocol/sdk`: `McpServer` + `StdioServerTransport`.
+- [x] Discovery: `git rev-parse --show-toplevel` from cwd → hash → session file → `http://127.0.0.1:<port>`; verify `GET /api/meta` repoRoot match; stale/missing → clear error text.
+- [x] Tools (zod schemas):
+  - [x] `get_diff_summary` → `{branch, totals, files: [{path, status, additions, deletions, openComments}]}`
+  - [x] `get_diff` `{file?}` → unified diff text (per-file when `file` given)
+  - [x] `list_review_comments` `{status?, file?}` → comments incl. `outdated`, `lineText`, `body`
+  - [x] `mark_comment_addressed` `{id, note?}` → PATCH status=addressed + note; returns updated comment
+- [x] Agent-oriented tool descriptions ("fix the code first, then mark addressed with a note").
 
 ## Phase 4 — Web UI (`src/web/`)
 
