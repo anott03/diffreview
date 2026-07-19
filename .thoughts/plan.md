@@ -75,9 +75,24 @@ The server is the single writer to the store. UI gets live updates via SSE; agen
 - **Zod schemas deferred to `src/server/`** (Phase 2), keeping `shared/types.ts` dependency-free so the web bundle doesn't pull in zod.
 - **`diffFilePath()` helper** is the single canonical-path rule (`newPath ?? oldPath`); comments anchor to this path.
 
-## Phase 2 — Server
+## Phase 2 — Server ✅ COMPLETE (2026-07-19)
 
-### 2.1 `src/server/git.ts`
+All modules implemented and verified: `paths.ts`, `git.ts`, `diff.ts`, `store.ts`, `session.ts`, `index.ts`, `cli.ts`.
+Tests: **26 passing** (diff parse/builders/anchors, store CRUD+persistence, git integration on temp repos).
+E2E on a fixture repo verified: meta, diff (modified/staged/unstaged/deleted/untracked/binary all correct), comment CRUD, zod 400s, live staleness flip, content re-anchor + persistence, SSE `diff`+`comments` events, session-file cleanup on SIGTERM.
+
+### Phase 2 decisions
+- **Added `@hono/node-server@2.0.10`** — hono core ships no Node adapter; needed for `serve` + `serveStatic`.
+- **Untracked files are built directly as `DiffFile` objects** (`buildUntrackedFile`/`buildUntrackedBinaryFile` in diff.ts) — no unified-diff text round-trip, so weird paths can't be mis-parsed. >1MB untracked files are labeled binary (mislabels huge text files; acceptable v1).
+- **Content-aware anchor resolution** (deviates from plan's "line-number exists" check): an anchor is valid only if line number **and** content match; otherwise re-anchor by content, else `outdated`. Consequence: editing the exact commented line flips it outdated (surfaces in the outdated group — the intended "this code changed" signal).
+- **Poll hash** = HEAD sha + `status --porcelain` + full diff text + untracked mtime/size. `git add` alone → harmless no-op re-parse. Overlap guard + try/catch around each cycle (survives index.lock during rebases).
+- **Static UI**: `serveStatic` falls through to `notFound` → SPA serves cached `index.html`; placeholder text when `dist/web` is absent (dev uses vite proxy instead).
+- **SSE**: named events (`diff`, `comments`, 30s `ping`), invalidation-only per Phase 1 decision.
+- **`node:sqlite` still prints an ExperimentalWarning on Node 25.2** (stderr only, harmless).
+- **tsconfig needed explicit `"types": ["node"]`** — TypeScript 7.0.2 did not auto-include `@types/node` (fixed during this phase).
+- Verification-env lesson: `pkill -f` patterns match the invoking shell's own command line — killed own pipeline once; use PID files/signal traps instead.
+
+### 2.1 `src/server/git.ts` ✅
 - `getRepoRoot(cwd)`: `git rev-parse --show-toplevel` (fail fast with friendly error).
 - `getMeta(root)`: branch (`git rev-parse --abbrev-ref HEAD`), HEAD sha.
 - `getDiff(root)`:
@@ -86,7 +101,7 @@ The server is the single writer to the store. UI gets live updates via SSE; agen
 - `pollHash(root)`: cheap hash of `git rev-parse HEAD` + `git status --porcelain` + diff length to detect change without full re-parse; full re-parse only on change.
 - Poll loop: every 2s, on change → re-parse → invoke callback → SSE broadcast.
 
-### 2.2 `src/server/diff.ts`
+### 2.2 `src/server/diff.ts` ✅
 - Wrap `parse-diff` → map to `DiffFile[]`; compute per-line `oldLine`/`newLine` numbers; per-file `additions`/`deletions`; `status` (added/deleted/renamed/modified).
 - `resolveAnchors(files, comments)`: for each comment, check `(file, side, line)` exists in current diff:
   - exact match → `outdated: false`
@@ -94,7 +109,7 @@ The server is the single writer to the store. UI gets live updates via SSE; agen
   - else → `outdated: true`
 - Unit tests for both.
 
-### 2.3 `src/server/store.ts`
+### 2.3 `src/server/store.ts` ✅
 - `node:sqlite` (`DatabaseSync`) at `~/.local/share/diff-review/<sha1-of-repoRoot>.sqlite`; `mkdir -p` first.
 - Schema:
   ```sql
@@ -116,11 +131,11 @@ The server is the single writer to the store. UI gets live updates via SSE; agen
 - CRUD: `list(status?, file?)`, `create(...)`, `update(id, {status?, note?, body?, line?})`, `remove(id)`, `get(id)`.
 - Unit tests (temp dir DB).
 
-### 2.4 `src/server/session.ts`
+### 2.4 `src/server/session.ts` ✅
 - On start: write `~/.local/share/diff-review/sessions/<hash>.json` `{port, pid, repoRoot, startedAt}`.
 - On exit (SIGINT/SIGTERM/exit): delete the file. Stale-file handling: MCP side verifies `pid` is alive and port responds.
 
-### 2.5 `src/server/index.ts` — Hono app
+### 2.5 `src/server/index.ts` — Hono app ✅
 - Bind `127.0.0.1` only.
 - Routes:
   - `GET /api/meta` → Meta
@@ -133,7 +148,7 @@ The server is the single writer to the store. UI gets live updates via SSE; agen
 - Static: serve `dist/web` (built UI) with SPA fallback to `index.html`; in dev, Vite proxies `/api` → 4777.
 - Zod-validate request bodies; 400 on invalid.
 
-### 2.6 `src/server/cli.ts`
+### 2.6 `src/server/cli.ts` ✅
 - Args: `[repoPath=.]` `--port <n>` (default 4777) `--open` (xdg-open browser).
 - Startup: resolve repo root → init store → start poll loop → start server → write session file.
 - Print: URL, repo, and the opencode MCP config snippet:
