@@ -100,6 +100,10 @@ src/
   - icon-only Buttons with `shape="square"` require `aria-label`.
   - Toast is `Toasty` + `useKumoToastManager().add({ title, variant })`.
   - `TooltipProvider` is a standalone export (no `Tooltip.Provider`).
+- **Theme toggle** (`src/web/components/ThemeToggle.tsx`) sets `data-mode` on `<html>` and persists
+  the choice in `localStorage` under `diffreview-theme`. The inline script in `index.html`
+  restores the saved choice before React hydrates; Kumo tokens and custom diff tints adapt
+  automatically.
 
 ### Single-writer store
 

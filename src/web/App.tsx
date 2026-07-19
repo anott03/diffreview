@@ -6,6 +6,7 @@ import { api, useServerEvents } from "./api";
 import { DiffView, type Layout } from "./components/DiffView";
 import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
+import { ThemeToggle } from "./components/ThemeToggle";
 
 export function App() {
   const toasts = useKumoToastManager();
@@ -123,6 +124,7 @@ export function App() {
         <span className="flex-1" />
         {openCount > 0 && <Badge variant="warning">{openCount} open</Badge>}
         {addressedCount > 0 && <Badge variant="success">{addressedCount} addressed</Badge>}
+        <ThemeToggle />
         <Tabs
           size="sm"
           tabs={[
