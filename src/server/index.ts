@@ -15,11 +15,11 @@ import type {
 } from "../shared/types";
 import { resolveAnchors } from "./diff";
 import { getMeta, type DiffWatcher } from "./git";
-import type { CommentStore } from "./store";
+import type { CommentStoreCompat } from "./store";
 
 export interface AppDeps {
   repoRoot: string;
-  store: CommentStore;
+  store: CommentStoreCompat;
   watcher: DiffWatcher;
 }
 

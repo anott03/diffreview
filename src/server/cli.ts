@@ -6,7 +6,7 @@ import { DiffWatcher, getRepoRoot } from "./git";
 import { createApp, findWebRoot, startServer } from "./index";
 import { dbPathForRepo } from "./paths";
 import { clearSession, writeSession } from "./session";
-import type { CommentStore } from "./store";
+import type { CommentStoreCompat } from "./store";
 
 const USAGE = `Usage: diffreview [repoPath] [options]
 
@@ -60,8 +60,8 @@ async function main(): Promise<void> {
 
   // Resolve all filesystem and SQLite access after argument validation so
   // `diffreview --help` is silent and fast.
-  const { CommentStore } = await import("./store.js");
-  const store = new CommentStore(dbPathForRepo(repoRoot)) as CommentStore;
+  const { CommentStoreCompat } = await import("./store.js");
+  const store = new CommentStoreCompat(dbPathForRepo(repoRoot)) as CommentStoreCompat;
   const watcher = new DiffWatcher(repoRoot, 2000);
   const app = createApp({ repoRoot, store, watcher });
 

@@ -1,9 +1,14 @@
 # Migrating diffreview's server to Effect v4 (beta)
 
-Status: draft plan — not started.
+Status: **in progress** — steps 0–4 done (see per-step checklists below).
 Scope: `src/server/` only. `src/mcp/` and `src/web/` are out of scope for this
 migration round; they are HTTP clients of the server and their contracts
 (`src/shared/types.ts`) must not change.
+
+> **Naming note (step 4):** the Effect service owns the `CommentStore` name;
+> the legacy synchronous class was renamed `CommentStoreCompat` and is deleted
+> in step 7+. Same pattern as the step-3 bridge, adapted for the class-name
+> collision.
 
 ---
 
@@ -131,34 +136,70 @@ Note: HttpApi will layer status-code annotations (`HttpApiSchema.status(201)`
 etc.) onto these schemas in Step 7 — kept out of this file so it stays a pure
 contract mirror of shared/types.ts.
 
-### Step 3 — `Git` service
+### Step 3 — `Git` service (DONE — committed as 84b67cb)
 
-Rewrite `src/server/git.ts` (keep pure helpers like `isBinaryBuffer` and the
-diff-collection logic, re-home them under the service):
+Rewrote `src/server/git.ts` (DiffWatcher kept, bridge-connected).
 
-- [ ] Declare `Git` service interface:
-      `run(root, args): Effect<string, GitError>`, `getRepoRoot(cwd)` →
-      `Effect<string, NotARepoError>`, `hasHead`, `getMeta(root, files)`,
-      `trackedDiffText`, `listUntracked`, `readUntrackedFiles`,
-      `collectState`, `getDiffFiles` — mirroring current exports.
-- [ ] Wrap `execFile` with `Effect.try` (maxBuffer 64MB preserved).
-- [ ] Tagged errors: `GitError { args, cause }`, `NotARepoError { cwd }`.
-- [ ] `Layer` with no dependencies.
-- [ ] Bridge interim: Hono handlers call `getMeta` etc. through a module-level
-      runtime built with `Effect.provide(GitLive)`. Old exported functions stay
-      until Step 7 removes them.
+- [x] `Git extends Context.Service` ("diffreview/server/Git") with methods:
+      `run`, `getRepoRoot`, `hasHead`, `getMeta`, `trackedDiffText`,
+      `listUntracked`, `readUntrackedFiles`, `collectState`, `getDiffFiles`.
+      Static `Git.layer` = `Layer.effect`.
+- [x] Tagged errors: `GitError { args, cause }`, `NotARepoError { cwd }` via
+      `Schema.TaggedError` (`cause: Schema.Defect()`).
+- [x] `execFile` wrapped with `Effect.tryPromise` (64MB maxBuffer preserved);
+      concurrent calls via `Effect.all(..., { concurrency: "unbounded" })`
+      mirroring the old `Promise.all` fan-outs.
+- [x] Vanished-file races surface as `null` results (catch → success channel),
+      preserving the old skip-on-error behavior for untracked reads.
+- [x] Interface note: `getMeta` is declared `Effect<Meta, GitError>` — more
+      precise than the old signature (its `rev-parse HEAD` could already
+      throw; Hono's onError turned that into a 500, unchanged).
+- [x] Interim bridge: module-level `ManagedRuntime.make(Git.layer)`;
+      old exports (`git`, `getRepoRoot`, `hasHead`, `getMeta`, `getDiffFiles`)
+      delegate via `Git.use(...)` + `runPromise`.
+      `getRepoRoot` maps `NotARepoError` back to the legacy
+      `Error("not a git repository: <cwd>")` that cli.ts prints.
+- [x] `DiffWatcher.refresh` now calls the bridge (`collectStateBridge`,
+      `readUntrackedFilesBridge`); class otherwise unchanged (step 5).
+- [x] +2 tests (canonical root; legacy non-repo error message). 50 total
+      green; typecheck green.
+- [x] Smoke test: server starts, `/api/meta` byte-identical to baseline,
+      comments CRUD + 204/404 paths fine, SSE events fire, non-repo CLI
+      message unchanged.
+- [x] Committed as 84b67cb.
 
-### Step 4 — `CommentStore` service
+### Step 4 — `CommentStore` service (DONE — awaiting review)
 
-Rewrite `src/server/store.ts`:
+Rewrote `src/server/store.ts`. Three layers in one file:
 
-- [ ] `CommentStore` service: `list`, `get`, `create`, `update`, `remove` all
-      returning `Effect<..., StoreError>`; identical SQL and row mapping.
-- [ ] Layer built with `Layer.acquireRelease`: `mkdirSync` + `new DatabaseSync`
-      on acquire, `db.close()` on release (deletes the manual `close()` call
-      from cli.ts later).
-- [ ] Keep `":memory:"` special case for tests.
-- [ ] Interim bridge as in Step 3; old class kept until Step 7.
+- [x] Sync core functions (`openDatabaseSync`, `listComments`, `getComment`,
+      `insertComment`, `updateComment`, `removeComment`) — single source of
+      truth for SQL + row mapping, shared by both implementations.
+- [x] `CommentStore` Effect service ("diffreview/server/CommentStore") with
+      `list`/`get`/`create`/`update`/`remove` returning
+      `Effect<_, StoreError>`; identical SQL and row mapping.
+      `StoreError { op, cause }` via `Schema.TaggedError`
+      (`op: Literals(["open","list","get","create","update","remove"])`).
+- [x] Lifecycle: `Layer.effect` + `Effect.acquireRelease` — open (mkdir +
+      `new DatabaseSync` + schema exec) on acquire, `db.close()` swallowed on
+      release. Deviation from plan wording: v4 has no `Layer.scoped`;
+      `Layer.effect` runs its effect in the layer's scope, which is the v4
+      acquireRelease pattern. The manual `close()` call in cli.ts disappears
+      in step 9.
+- [x] `":memory:"` special case kept (inside shared `openDatabaseSync`).
+- [x] Interim bridge: legacy class **renamed** `CommentStoreCompat` (the
+      service now owns the `CommentStore` name per plan); same sync behavior,
+      delegates to the core. Import-site updates: `cli.ts` (2), `index.ts` (2).
+      Deleted in step 7+.
+- [x] Tests: `store.test.ts` rewritten against the service using
+      `@effect/vitest` (`it.effect` + `Effect.provide(layer)`); same six
+      cases as the legacy tests plus two new ones — reopen across two layer
+      builds, and `StoreError(op=open)` via `Effect.flip` on an unopenable
+      path. Legacy-class tests intentionally dropped: the class is a thin
+      delegate over the same core the service exercises.
+- [x] 52 tests green; typecheck green; no runtime behavior change (server
+      still runs on `CommentStoreCompat`).
+- [ ] Commit (waiting for review).
 
 ### Step 5 — `Watcher` service (replaces `DiffWatcher`)
 
