@@ -133,7 +133,6 @@ export function App() {
   }, [selectedPath]);
 
   const openCount = comments.filter((c) => c.status === "open").length;
-  const addressedCount = comments.length - openCount;
 
   if (files === null) {
     return (
@@ -159,7 +158,6 @@ export function App() {
         )}
         <span className="flex-1" />
         {openCount > 0 && <Badge variant="warning">{openCount} open</Badge>}
-        {addressedCount > 0 && <Badge variant="success">{addressedCount} addressed</Badge>}
         <ThemeToggle />
         <Tabs
           size="sm"
