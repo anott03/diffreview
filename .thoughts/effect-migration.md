@@ -104,19 +104,32 @@ checkpoints 2–5 keep Hono running, bridged to Effect via `Effect.provide` +
       signatures, `NodeHttpServer`/`NodeRuntime` exports. Write findings into
       this file (appendix) before proceeding.
 
-### Step 2 — Schema layer (server-side, replaces zod)
+### Step 2 — Schema layer (server-side, replaces zod) (DONE — awaiting review)
 
-New file: `src/server/api-schemas.ts`.
+New file: `src/server/api-schemas.ts`; tests in `src/server/api-schemas.test.ts`.
 
-- [ ] Define `Schema` equivalents for the request/response contracts the server
-      owns: `CreateCommentRequest`, `UpdateCommentRequest` (incl. the
-      "at least one field" refinement from `updateCommentSchema`), plus schemas
-      needed by HttpApi responses (`Comment`, `DiffFile`, `Meta`, error shape).
-- [ ] `src/shared/types.ts` stays dependency-free plain TS; the Schema structs
-      should be shape-compatible (same JSON serialization). Add a temporary
-      type-level assertion (or unit test) that Schema types equal the shared
-      interfaces to catch drift.
-- [ ] No behavioral change yet; old zod code remains.
+- [x] `Schema` equivalents for all server-owned contracts: `CreateCommentRequest`,
+      `UpdateCommentRequest` (incl. the "empty patch" filter via
+      `Schema.makeFilter`), `Comment`, `DiffFile`/`DiffHunk`/`DiffLine`, `Meta`,
+      response wrappers, `ApiErrorResponse`, `SseEvent`.
+- [x] `src/shared/types.ts` untouched; parity enforced by a type-level test:
+      mutual-assignability assertions for struct schemas + strict `Equal` for
+      the literal unions. (Token-level `Equal` proved too brittle for nested
+      struct optionality — arrays are wrapped in `Schema.mutable` so decoded
+      types use mutable arrays like the shared interfaces.)
+- [x] `PositiveIntSchema` = `Schema.Finite` + `isInt` + `isGreaterThan(0)`
+      (matches zod `int().positive()`).
+- [x] Optional keys use `Schema.optionalKey` (exact-optional) — matches the
+      conditional-spread emission in `store.rowToComment`/`resolveAnchors`.
+- [x] Runtime tests: decode/encode round-trips, note/outdated presence vs
+      absence in JSON (Hono parity: absent keys stay absent, present-false
+      stays present), invalid enums/lines/empty patches rejected.
+- [x] 17 new tests; 48 total green; typecheck green. No existing code touched.
+- [ ] Commit (waiting for review).
+
+Note: HttpApi will layer status-code annotations (`HttpApiSchema.status(201)`
+etc.) onto these schemas in Step 7 — kept out of this file so it stays a pure
+contract mirror of shared/types.ts.
 
 ### Step 3 — `Git` service
 
