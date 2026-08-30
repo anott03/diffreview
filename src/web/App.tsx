@@ -1,5 +1,6 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Loader } from "@cloudflare/kumo/components/loader";
+import { Sidebar } from "@cloudflare/kumo/components/sidebar";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,7 +20,22 @@ export function App() {
   const [layout, setLayout] = useState<Layout>("unified");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      return localStorage.getItem("diffreview-sidebar") !== "false";
+    } catch {
+      return true;
+    }
+  });
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("diffreview-sidebar", String(sidebarOpen));
+    } catch {
+      // Storage may be disabled in some contexts — ignore.
+    }
+  }, [sidebarOpen]);
 
   const refreshDiff = useCallback(async () => {
     try {
@@ -162,7 +178,13 @@ export function App() {
             <EmptyState />
           </div>
         ) : (
-          <>
+          <Sidebar.Provider
+            open={sidebarOpen}
+            onOpenChange={setSidebarOpen}
+            contained
+            mobileBreakpoint={0}
+            className="min-h-0 flex-1"
+          >
             <FileList
               files={files}
               comments={comments}
@@ -194,7 +216,7 @@ export function App() {
                 );
               })}
             </main>
-          </>
+          </Sidebar.Provider>
         )}
       </div>
     </div>
