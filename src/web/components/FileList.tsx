@@ -1,4 +1,5 @@
-import { Badge, cn } from "@cloudflare/kumo";
+import { Badge } from "@cloudflare/kumo/components/badge";
+import { cn } from "@cloudflare/kumo/utils";
 import { ArrowRight, FileMinus, FilePlus, NotePencil } from "@phosphor-icons/react";
 import type { Comment, DiffFile, DiffFileStatus } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
@@ -20,7 +21,7 @@ interface FileListProps {
 export function FileList({ files, comments, selectedPath, onSelect }: FileListProps) {
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col overflow-y-auto border-r border-kumo-line bg-kumo-elevated">
-      <div className="border-b border-kumo-line px-3 py-2 text-xs font-medium text-kumo-subtle">
+      <div className="flex h-10 items-center border-b border-kumo-line px-3 text-xs font-medium text-kumo-subtle">
         Changed files ({files.length})
       </div>
       <ul className="flex-1 py-1">

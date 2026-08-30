@@ -1,4 +1,7 @@
-import { Badge } from "@cloudflare/kumo";
+import { Badge } from "@cloudflare/kumo/components/badge";
+import { Button } from "@cloudflare/kumo/components/button";
+import { Collapsible } from "@cloudflare/kumo/components/collapsible";
+import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import type { Comment, CreateCommentRequest, DiffFile } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
@@ -18,12 +21,23 @@ interface DiffViewProps {
   file: DiffFile;
   layout: Layout;
   comments: Comment[];
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   onSubmitComment: (input: CreateCommentRequest) => Promise<void>;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function DiffView({ file, layout, comments, onSubmitComment, onReopen, onDelete }: DiffViewProps) {
+export function DiffView({
+  file,
+  layout,
+  comments,
+  collapsed,
+  onToggleCollapse,
+  onSubmitComment,
+  onReopen,
+  onDelete,
+}: DiffViewProps) {
   const [editing, setEditing] = useState<EditingAnchor | null>(null);
   const path = diffFilePath(file);
 
@@ -64,8 +78,24 @@ export function DiffView({ file, layout, comments, onSubmitComment, onReopen, on
   };
 
   return (
-    <div className="flex flex-col">
-      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-kumo-line bg-kumo-elevated px-4 py-2">
+    <Collapsible.Root
+      open={!collapsed}
+      onOpenChange={() => onToggleCollapse()}
+      className="flex flex-col"
+    >
+      <div className="sticky top-0 z-10 flex h-10 items-center gap-2 border-b border-kumo-line bg-kumo-elevated px-4">
+        <Collapsible.Trigger
+          render={
+            <Button
+              shape="square"
+              variant="ghost"
+              size="sm"
+              aria-label={collapsed ? "Expand diff" : "Collapse diff"}
+            />
+          }
+        >
+          {collapsed ? <CaretRightIcon size={16} /> : <CaretDownIcon size={16} />}
+        </Collapsible.Trigger>
         <Badge variant={status.variant}>{status.label}</Badge>
         <span className="font-mono text-sm">
           {file.status === "renamed" ? `${file.oldPath} → ${file.newPath}` : path}
@@ -77,29 +107,36 @@ export function DiffView({ file, layout, comments, onSubmitComment, onReopen, on
         </span>
       </div>
 
-      {outdated.length > 0 && (
-        <details className="border-b border-kumo-line">
-          <summary className="cursor-pointer px-4 py-2 text-xs text-kumo-subtle select-none">
-            {outdated.length} outdated comment{outdated.length === 1 ? "" : "s"} (anchored to code
-            that has since changed)
-          </summary>
-          <div className="flex flex-col gap-px pb-px">
-            {outdated.map((comment) => (
-              <CommentThread key={comment.id} comment={comment} onReopen={onReopen} onDelete={onDelete} />
-            ))}
-          </div>
-        </details>
-      )}
+      <Collapsible.Panel>
+        {outdated.length > 0 && (
+          <details className="border-b border-kumo-line">
+            <summary className="cursor-pointer px-4 py-2 text-xs text-kumo-subtle select-none">
+              {outdated.length} outdated comment{outdated.length === 1 ? "" : "s"} (anchored to code
+              that has since changed)
+            </summary>
+            <div className="flex flex-col gap-px pb-px">
+              {outdated.map((comment) => (
+                <CommentThread
+                  key={comment.id}
+                  comment={comment}
+                  onReopen={onReopen}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          </details>
+        )}
 
-      {file.isBinary ? (
-        <div className="px-4 py-6 text-sm text-kumo-subtle">
-          Binary file — no textual diff to display.
-        </div>
-      ) : layout === "unified" ? (
-        <UnifiedDiffTable {...tableProps} />
-      ) : (
-        <SplitDiffTable {...tableProps} />
-      )}
-    </div>
+        {file.isBinary ? (
+          <div className="px-4 py-6 text-sm text-kumo-subtle">
+            Binary file — no textual diff to display.
+          </div>
+        ) : layout === "unified" ? (
+          <UnifiedDiffTable {...tableProps} />
+        ) : (
+          <SplitDiffTable {...tableProps} />
+        )}
+      </Collapsible.Panel>
+    </Collapsible.Root>
   );
 }

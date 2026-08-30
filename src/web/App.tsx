@@ -1,5 +1,8 @@
-import { Badge, Loader, Tabs, useKumoToastManager } from "@cloudflare/kumo";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "@cloudflare/kumo/components/badge";
+import { Loader } from "@cloudflare/kumo/components/loader";
+import { Tabs } from "@cloudflare/kumo/components/tabs";
+import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Comment, CreateCommentRequest, DiffFile, Meta } from "../shared/types";
 import { diffFilePath } from "../shared/types";
 import { api, useServerEvents } from "./api";
@@ -15,6 +18,8 @@ export function App() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [layout, setLayout] = useState<Layout>("unified");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
+  const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const refreshDiff = useCallback(async () => {
     try {
@@ -86,15 +91,30 @@ export function App() {
       .catch((err) => toasts.add({ variant: "error", title: "Failed to delete", description: String(err) }));
   };
 
-  const selected = useMemo(() => {
-    if (!files || files.length === 0) return null;
-    return files.find((f) => diffFilePath(f) === selectedPath) ?? files[0]!;
-  }, [files, selectedPath]);
+  const selectFile = useCallback((path: string) => {
+    setSelectedPath(path);
+    setCollapsedPaths((prev) => {
+      if (!prev.has(path)) return prev;
+      const next = new Set(prev);
+      next.delete(path);
+      return next;
+    });
+  }, []);
 
-  const selectedComments = useMemo(
-    () => (selected ? comments.filter((c) => c.file === diffFilePath(selected)) : []),
-    [comments, selected],
-  );
+  const toggleCollapsed = useCallback((path: string) => {
+    setCollapsedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPath) return;
+    const el = fileRefs.current[selectedPath];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selectedPath]);
 
   const openCount = comments.filter((c) => c.status === "open").length;
   const addressedCount = comments.length - openCount;
@@ -146,21 +166,33 @@ export function App() {
             <FileList
               files={files}
               comments={comments}
-              selectedPath={selected ? diffFilePath(selected) : null}
-              onSelect={setSelectedPath}
+              selectedPath={selectedPath}
+              onSelect={selectFile}
             />
             <main className="min-w-0 flex-1 overflow-y-auto">
-              {selected && (
-                <DiffView
-                  key={diffFilePath(selected)}
-                  file={selected}
-                  layout={layout}
-                  comments={selectedComments}
-                  onSubmitComment={submitComment}
-                  onReopen={reopenComment}
-                  onDelete={deleteComment}
-                />
-              )}
+              {files.map((file) => {
+                const path = diffFilePath(file);
+                return (
+                  <div
+                    key={path}
+                    id={path}
+                    ref={(el) => {
+                      fileRefs.current[path] = el;
+                    }}
+                  >
+                    <DiffView
+                      file={file}
+                      layout={layout}
+                      comments={comments.filter((c) => c.file === path)}
+                      collapsed={collapsedPaths.has(path)}
+                      onToggleCollapse={() => toggleCollapsed(path)}
+                      onSubmitComment={submitComment}
+                      onReopen={reopenComment}
+                      onDelete={deleteComment}
+                    />
+                  </div>
+                );
+              })}
             </main>
           </>
         )}
