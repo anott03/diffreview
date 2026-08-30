@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import { diffFilePath } from "../shared/types";
-import { getDiffFiles, hasHead } from "./git";
+import { getDiffFiles, getRepoRoot, hasHead } from "./git";
 
 const execFileAsync = promisify(execFile);
 const git = (cwd: string, args: string[]) => execFileAsync("git", args, { cwd });
@@ -24,6 +24,19 @@ async function makeRepo(): Promise<string> {
 
 afterAll(async () => {
   await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
+});
+
+describe("getRepoRoot", () => {
+  it("rejects a non-repo directory with the legacy message", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "diffreview-norepo-"));
+    dirs.push(dir);
+    await expect(getRepoRoot(dir)).rejects.toThrow(`not a git repository: ${dir}`);
+  });
+
+  it("returns the canonical root for a repo", async () => {
+    const dir = await makeRepo();
+    expect(await getRepoRoot(dir)).toBe(dir);
+  });
 });
 
 describe("getDiffFiles", () => {
