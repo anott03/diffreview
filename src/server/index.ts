@@ -14,13 +14,14 @@ import type {
   SseEventType,
 } from "../shared/types";
 import { resolveAnchors } from "./diff";
-import { getMeta, type DiffWatcher } from "./git";
+import { getMeta } from "./git";
+import type { WatcherCompat } from "./watcher";
 import type { CommentStoreCompat } from "./store";
 
 export interface AppDeps {
   repoRoot: string;
   store: CommentStoreCompat;
-  watcher: DiffWatcher;
+  watcher: WatcherCompat;
 }
 
 const createCommentSchema = z.object({

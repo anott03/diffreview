@@ -4,7 +4,7 @@
  * `Git` is the domain service (typed errors, composable). The free functions
  * below it (`git`, `getRepoRoot`, `hasHead`, `getMeta`, `getDiffFiles`) are an
  * interim bridge over a module-level ManagedRuntime so the existing Hono
- * routes, DiffWatcher, and tests keep working until the HTTP layer is
+ * routes and tests keep working until the HTTP layer is
  * migrated (migration steps 5-10 of .thoughts/effect-migration.md).
  */
 import { execFile } from "node:child_process";
@@ -275,62 +275,4 @@ export async function getMeta(root: string, files: DiffFile[]): Promise<Meta> {
 
 export async function getDiffFiles(root: string): Promise<DiffFile[]> {
   return runtime.runPromise(Git.use((g) => g.getDiffFiles(root)));
-}
-
-const collectStateBridge = (root: string) =>
-  runtime.runPromise(Git.use((g) => g.collectState(root)));
-
-const readUntrackedFilesBridge = (root: string, paths: ReadonlyArray<string>) =>
-  runtime.runPromise(Git.use((g) => g.readUntrackedFiles(root, paths)));
-
-// ---------------------------------------------------------------------------
-// Poll-based watcher (migrated to an Effect service in step 5)
-// ---------------------------------------------------------------------------
-
-export class DiffWatcher {
-  /** Latest parsed diff. Empty until the first successful refresh. */
-  files: DiffFile[] = [];
-  /** Called after `files` changes (set by the HTTP layer for SSE fan-out). */
-  onChange?: (files: DiffFile[]) => void;
-
-  private lastHash = "";
-  private timer?: NodeJS.Timeout;
-  private running = false;
-
-  constructor(
-    private root: string,
-    private intervalMs: number,
-  ) {}
-
-  /** Re-collect state; re-parses and notifies only when the hash changed. */
-  async refresh(): Promise<void> {
-    const state = await collectStateBridge(this.root);
-    if (state.hash === this.lastHash) return;
-    this.lastHash = state.hash;
-    const untracked = await readUntrackedFilesBridge(this.root, state.untrackedPaths);
-    this.files = [...parseGitDiff(state.diffText), ...untracked];
-    this.onChange?.(this.files);
-  }
-
-  /** Starts polling. The first tick runs immediately (async). */
-  start(): void {
-    void this.tick();
-    this.timer = setInterval(() => void this.tick(), this.intervalMs);
-  }
-
-  stop(): void {
-    if (this.timer) clearInterval(this.timer);
-  }
-
-  private async tick(): Promise<void> {
-    if (this.running) return; // never overlap slow git runs
-    this.running = true;
-    try {
-      await this.refresh();
-    } catch {
-      // Transient git failure (e.g. index.lock mid-rebase) — retry next cycle.
-    } finally {
-      this.running = false;
-    }
-  }
 }

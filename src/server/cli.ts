@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import pkg from "../../package.json";
-import { DiffWatcher, getRepoRoot } from "./git";
+import { getRepoRoot } from "./git";
+import { WatcherCompat } from "./watcher";
 import { createApp, findWebRoot, startServer } from "./index";
 import { dbPathForRepo } from "./paths";
 import { clearSession, writeSession } from "./session";
@@ -62,7 +63,7 @@ async function main(): Promise<void> {
   // `diffreview --help` is silent and fast.
   const { CommentStoreCompat } = await import("./store.js");
   const store = new CommentStoreCompat(dbPathForRepo(repoRoot)) as CommentStoreCompat;
-  const watcher = new DiffWatcher(repoRoot, 2000);
+  const watcher = new WatcherCompat(repoRoot, 2000);
   const app = createApp({ repoRoot, store, watcher });
 
   let server: Awaited<ReturnType<typeof startServer>>;
