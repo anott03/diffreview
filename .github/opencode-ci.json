@@ -1,0 +1,28 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "cloudflare-gateway-workers-ai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Cloudflare AI Gateway: Workers AI",
+      "options": {
+        "baseURL": "https://api.cloudflare.com/client/v4/accounts/{env:CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+        "apiKey": "{env:CLOUDFLARE_API_TOKEN}",
+        "headers": {
+          "cf-aig-gateway-id": "{env:CLOUDFLARE_GATEWAY_ID}"
+        }
+      },
+      "models": {
+        "@cf/deepseek-ai/deepseek-v4-pro-0813": {
+          "name": "DeepSeek V4 Pro 0813",
+          "attachment": false,
+          "reasoning": true,
+          "tool_call": true,
+          "temperature": true,
+          "interleaved": { "field": "reasoning_content" },
+          "modalities": { "input": ["text"], "output": ["text"] },
+          "limit": { "context": 1048576, "output": 1048576 }
+        }
+      }
+    }
+  }
+}
