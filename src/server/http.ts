@@ -11,6 +11,9 @@
  * - static UI + SPA fallback when built; actionable 404 text when not
  */
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect, Layer, Schedule, Schema, Stream } from "effect";
 import { NodeFileSystem, NodeHttpServer, NodePath } from "@effect/platform-node";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -22,6 +25,7 @@ import { Api, BadRequestError, InternalError, NotFoundError } from "./api";
 import { CommentStore } from "./store";
 import { Git } from "./git";
 import { Watcher } from "./watcher";
+import { Session } from "./session";
 import { ServerConfig } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -150,37 +154,16 @@ export const ApiHandlers = HttpApiBuilder.group(
 );
 
 // ---------------------------------------------------------------------------
-// SSE stream route
-// ---------------------------------------------------------------------------
-
-const encoder = new TextEncoder();
-
-const frame = (event: string, data: string) =>
-  encoder.encode(`event: ${event}\ndata: ${data}\n\n`);
-
-/** GET /api/events — SSE invalidation signals + 30s keep-alive pings. */
-export const sseRoutes = HttpRouter.add("GET", "/api/events", Effect.gen(function*() {
-  const watcher = yield* Watcher;
-  const events = watcher.changes.pipe(
-    Stream.map((e) => frame(e.type, JSON.stringify({ type: e.type, at: e.at })))
-  );
-  const pings = Stream.fromSchedule(Schedule.spaced("30 seconds")).pipe(
-    Stream.map(() => frame("ping", "{}"))
-  );
-  return HttpServerResponse.stream(Stream.merge(events, pings), {
-    contentType: "text/event-stream",
-    headers: { "cache-control": "no-cache", connection: "keep-alive" }
-  });
-}));
-
-// ---------------------------------------------------------------------------
 // Unmatched /api/* → JSON 404 (matches the legacy app.notFound behavior)
 // ---------------------------------------------------------------------------
 
 export const apiNotFoundRoutes = HttpRouter.add(
   "*",
   "/api/*",
-  HttpServerResponse.json({ error: "not found" }, { status: 404 })
+  HttpServerResponse.text(JSON.stringify({ error: "not found" }), {
+    status: 404,
+    contentType: "application/json"
+  })
 );
 
 // ---------------------------------------------------------------------------
@@ -205,6 +188,19 @@ export const webRoutes = (webRoot: string | null) =>
 // Server layer
 // ---------------------------------------------------------------------------
 
+/**
+ * Built UI lives at dist/web relative to the bundled server (dist/server).
+ * Only accept a directory that looks like a vite build (index.html + assets/):
+ * in dev, `../web` resolves to the *source* src/web, which must NOT be served
+ * (browsers can't execute raw .tsx — blank page + MIME type errors).
+ */
+export function findWebRoot(): string | null {
+  const candidate = fileURLToPath(new URL("../web", import.meta.url));
+  return existsSync(join(candidate, "index.html")) && existsSync(join(candidate, "assets"))
+    ? candidate
+    : null;
+}
+
 /** The api route layer: endpoint implementations registered into the router. */
 export const ApiRoutes = HttpApiBuilder.layer(Api).pipe(Layer.provide(ApiHandlers));
 
@@ -218,24 +214,24 @@ export interface ServerOptions {
 }
 
 /**
- * The complete HTTP server: routes (api + SSE + static) served over a Node
- * http server bound to 127.0.0.1. All domain services are provided here so
- * the api handlers and the SSE route share one instance of each.
+ * The complete HTTP server: routes (api + static) served over a Node http
+ * server bound to 127.0.0.1, with all domain services provided. The domain
+ * services are also exposed as the layer's output (provideMerge) so the cli
+ * program can drive them (initial refresh, session bookkeeping).
  */
-export const serverLayer = (options: ServerOptions) =>
-  HttpRouter.serve(
-    Layer.mergeAll(ApiRoutes, sseRoutes, apiNotFoundRoutes, webRoutes(options.webRoot))
-  ).pipe(
-    Layer.provide([
-      NodeHttpServer.layer(() => createServer(), {
-        port: options.port,
-        host: "127.0.0.1"
-      }),
-      NodeFileSystem.layer,
-      NodePath.layer,
-      Git.layer,
-      CommentStore.layer(options.dbPath),
-      Watcher.layer({ root: options.repoRoot, intervalMs: options.intervalMs }).pipe(Layer.provide(Git.layer)),
+export const serverLayer = (options: ServerOptions) => {
+  // Note: Layer.merge (not mergeAll — that one's for no-output layers and
+  // collapses service outputs). Watcher gets Git provided privately, so the
+  // merged layer's requirements stay empty.
+  const services = Git.layer.pipe(
+    Layer.merge(CommentStore.layer(options.dbPath)),
+    Layer.merge(
+      Watcher.layer({ root: options.repoRoot, intervalMs: options.intervalMs }).pipe(
+        Layer.provide(Git.layer)
+      )
+    ),
+    Layer.merge(Session.layer),
+    Layer.merge(
       Layer.succeed(ServerConfig, {
         repoRoot: options.repoRoot,
         port: options.port,
@@ -244,5 +240,21 @@ export const serverLayer = (options: ServerOptions) =>
         dbPath: options.dbPath,
         webRoot: options.webRoot
       })
-    ])
+    )
   );
+
+  return HttpRouter.serve(
+    Layer.mergeAll(ApiRoutes, apiNotFoundRoutes, webRoutes(options.webRoot))
+  ).pipe(
+    Layer.provide([
+      NodeHttpServer.layer(() => createServer(), {
+        port: options.port,
+        host: "127.0.0.1"
+      }),
+      NodeFileSystem.layer,
+      NodePath.layer,
+      services
+    ]),
+    Layer.provideMerge(services)
+  );
+};

@@ -302,23 +302,36 @@ New file: `src/server/http.ts` (+ integration tests in `http.test.ts`):
 - [ ] cli.ts switch-over happens in step 9 (legacy server still live).
 
 
-### Step 9 — Entry point (`cli.ts`) & MainLive
+### Step 9 — Entry point (`cli.ts`) & MainLive (DONE — awaiting review)
 
-- [ ] Compose `MainLive = Config + Git + CommentStore(path) + Watcher(2s) + Session`.
-- [ ] `main` program: validate args/port (same messages & exit codes) →
-      resolve repoRoot (`NotARepoError` → `fail()` equivalent) → serve →
-      `writeSession` → one synchronous `watcher.refresh` → banner logging →
-      optional `xdg-open` spawn (`unref` preserved).
-- [ ] Launch via `NodeRuntime.runMain(main.pipe(Effect.provide(MainLive)))`
-      (or v4 equivalent — *verify*; v4 removed `Runtime<R>` and has automatic
-      fiber keep-alive so a long-lived `serve` fiber keeps the process alive).
-- [ ] SIGINT/SIGTERM: rely on runMain signal handling → scope finalizers close
-      the HTTP server, interrupt poll fiber, close DB, clear session file.
-      Verify session file is actually removed on Ctrl-C (MCP staleness
-      tolerance makes this non-fatal, but preserve behavior).
-- [ ] Keep the dynamic `await import("./store.js")`-style lazy DB loading only
-      if trivially expressible in a Layer; otherwise drop the laziness (the
-      `--help` fast path only needs it to stay silent — check timing).
+- [x] `cli.ts` rewritten on `serverLayer` + `NodeRuntime.runMain`; arg parsing
+      (node:util parseArgs), validation messages/exit codes, banner, and
+      `--open` spawn preserved byte-for-byte. The laziness (dynamic store
+      import) was dropped — Effect imports at module load keep `--help`
+      silent (timing still fast).
+- [x] `serverLayer` now EXPOSES the domain services via `Layer.provideMerge`
+      (main body drives Watcher/Session/ServerConfig directly). Gotcha
+      recorded: `Layer.mergeAll` collapses service outputs (its type requires
+      `Layer<never, ...>`) — service composition must use `Layer.merge`.
+      Watcher is pre-composed with `.pipe(Layer.provide(Git.layer))` so its
+      requirement doesn't leak.
+- [x] Shutdown: session clear is an `Effect.addFinalizer` after write;
+      `Effect.scoped` + `Effect.never` parks the program, runMain handles
+      SIGINT/SIGTERM → finalizers unwind (server close, poll fiber interrupt,
+      sqlite close, session clear). Verified live: session file removed,
+      process exits with code 130 on SIGINT (matches legacy).
+- [x] EADDRINUSE → legacy `port N is already in use (...)` message restored
+      via message check (ServeError doesn't carry `.code` at top level);
+      other serve failures → `could not start server: <message>`.
+- [x] Raw SSE route block removed from http.ts (superseded by the
+      StreamSse endpoint in the api group — it would have mounted a second
+      Watcher instance).
+- [x] `findWebRoot` moved to http.ts (index.ts is now fully dead until
+      step 10 deletes it).
+- [x] Smoke (real cli → Effect server): banner, meta/diff/comment CRUD +
+      400/404 bodies, SSE diff frames, session write/clear, exit codes,
+      --help/--version.
+- [ ] Commit (waiting for review).
 
 ### Step 10 — Delete legacy code & deps
 
