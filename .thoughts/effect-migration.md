@@ -353,15 +353,26 @@ New file: `src/server/http.ts` (+ integration tests in `http.test.ts`):
       assert JSON shapes and status codes (guards the MCP/web contract).
 - [ ] Keep vitest config as-is (`include: src/**/*.test.ts`).
 
-### Step 12 — Final verification
+### Step 12 — Final verification (DONE)
 
-- [ ] `pnpm typecheck && pnpm test && pnpm build` green.
-- [ ] Manual smoke: `pnpm dev:server` → UI at :5173, comments CRUD via UI,
-      SSE invalidation on edit, `pnpm build && pnpm start` serves static UI,
-      `diffreview-mcp` against the running server (discovery via session file).
-- [ ] Verify SIGINT removes the session file and exits cleanly.
-- [ ] Update this file: mark steps done, record any API deviations discovered
-      (see §4 warning) into the appendix.
+- [x] `pnpm typecheck && pnpm test && pnpm build` green (70 tests / 8 files).
+- [x] Bundled server smoke (`node dist/server/cli.js`): static UI served
+      (GET / → index.html, /assets/* → 200), SPA fallback serves index for
+      browser-like requests (Accept: text/html, no extension), /api/meta,
+      comment CRUD (201/200/204), 400/404 error bodies.
+- [x] MCP discovery end-to-end: session file written by the bundled server,
+      `resolveClient` (pid/port/meta checks) resolves
+      `http://127.0.0.1:<port>` for the repo; bundled `dist/mcp/server.js`
+      starts and announces on stdio. Stale sessions tolerated with the
+      documented error (verified with leftover smoke-test files).
+- [x] SIGINT on the bundled server: session file removed, exit 130.
+- [x] Plan updated; deviations recorded in the step sections above
+      (TaggedError payloads, handleRaw decode, Layer.merge/provide-array
+      gotchas, zod kept for src/mcp).
+
+**Migration complete.** All server code runs on Effect v4 (pinned
+4.0.0-beta.107); the legacy Hono path is deleted. Out-of-scope follow-ups in
+§7 (mcp/web Effect adoption, effect/unstable/cli) remain open ideas.
 
 ## 6. Risks & mitigations
 
