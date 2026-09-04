@@ -370,9 +370,18 @@ New file: `src/server/http.ts` (+ integration tests in `http.test.ts`):
       (TaggedError payloads, handleRaw decode, Layer.merge/provide-array
       gotchas, zod kept for src/mcp).
 
-**Migration complete.** All server code runs on Effect v4 (pinned
-4.0.0-beta.107); the legacy Hono path is deleted. Out-of-scope follow-ups in
-§7 (mcp/web Effect adoption, effect/unstable/cli) remain open ideas.
+**Migration complete.** All server code runs on Effect v4; the legacy Hono
+path is deleted. Out-of-scope follow-ups in §7 (mcp/web Effect adoption,
+effect/unstable/cli) remain open ideas.
+
+### Post-migration upgrade: beta.107 → rc.112 (release candidate)
+
+Upgraded `effect`, `@effect/platform-node`, `@effect/vitest` from
+`4.0.0-beta.107` to `4.0.0-rc.112` (docs now recommend `pnpm add effect@rc`).
+No code changes were required — typecheck, all 70 tests, and the bundled
+server smoke (static UI, meta, SSE frames, SIGINT session cleanup) pass
+unchanged. Exact pins (no caret) kept across the three packages per the
+pinning convention in AGENTS.md.
 
 ## 6. Risks & mitigations
 

@@ -139,10 +139,11 @@ Never add direct SQLite access from `src/web/` or `src/mcp/`.
 
 ## Common pitfalls
 
-- **Effect beta pinning:** the server runs on `effect@4.0.0-beta.107`
-  (pinned, no caret) with `@effect/platform-node` / `@effect/vitest` at the
-  same version. Bump all three together; check the
-  v4 migration guides when upgrading.
+- **Effect release-candidate pinning:** the server runs on
+  `effect@4.0.0-rc.112` (pinned, no caret) with `@effect/platform-node` /
+  `@effect/vitest` at the same version. Bump all three together; check the
+  v4 migration guides when upgrading (stable v4 releases will drop the
+  `rc` prefix — keep the exact pins aligned across the three packages).
 - **Blank page in dev:** if `findWebRoot()` in `src/server/http.ts` serves
   `src/web/` source files instead of `dist/web/`, browsers cannot execute raw
   `.tsx`. The current guard requires both `index.html` and `assets/` to exist.
