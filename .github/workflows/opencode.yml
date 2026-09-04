@@ -28,8 +28,9 @@ jobs:
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
+          OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
         with:
-          model: cloudflare-ai-gateway/@cf/deepseek-ai/deepseek-v4-pro-0813
+          model: cloudflare-gateway-workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813
