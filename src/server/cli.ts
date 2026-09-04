@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { Effect } from "effect";
+import { NodeRuntime } from "@effect/platform-node";
 import pkg from "../../package.json";
-import { DiffWatcher, getRepoRoot } from "./git";
-import { createApp, findWebRoot, startServer } from "./index";
+import { getRepoRoot } from "./git";
+import { Watcher } from "./watcher";
+import { findWebRoot, serverLayer } from "./http";
 import { dbPathForRepo } from "./paths";
-import { clearSession, writeSession } from "./session";
-import type { CommentStore } from "./store";
+import { Session } from "./session";
+import { ServerConfig } from "./config";
 
 const USAGE = `Usage: diffreview [repoPath] [options]
 
@@ -27,6 +30,16 @@ function fail(message: string): never {
   console.error(`diffreview: ${message}`);
   process.exit(1);
 }
+
+const errMessage = (e: unknown): string => {
+  if (e instanceof Error && e.message) return e.message;
+  if (typeof e === "object" && e !== null) {
+    const anyErr = e as { message?: unknown; cause?: unknown };
+    if (typeof anyErr.message === "string" && anyErr.message) return anyErr.message;
+    if (anyErr.cause instanceof Error && anyErr.cause.message) return anyErr.cause.message;
+  }
+  return "internal error";
+};
 
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
@@ -58,64 +71,79 @@ async function main(): Promise<void> {
     fail((err as Error).message);
   }
 
-  // Resolve all filesystem and SQLite access after argument validation so
-  // `diffreview --help` is silent and fast.
-  const { CommentStore } = await import("./store.js");
-  const store = new CommentStore(dbPathForRepo(repoRoot)) as CommentStore;
-  const watcher = new DiffWatcher(repoRoot, 2000);
-  const app = createApp({ repoRoot, store, watcher });
-
-  let server: Awaited<ReturnType<typeof startServer>>;
-  try {
-    server = await startServer(app, port);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    fail(message.toLowerCase().includes("eaddrinuse")
-      ? `port ${port} is already in use (another diffreview instance running? try --port)`
-      : `could not start server: ${message}`);
-  }
-
-  writeSession({ port, pid: process.pid, repoRoot, startedAt: Date.now() });
-
-  const shutdown = () => {
-    clearSession(repoRoot);
-    watcher.stop();
-    store.close();
-    server.close();
-  };
-  process.on("exit", shutdown);
-  process.on("SIGINT", () => {
-    shutdown();
-    process.exit(130);
-  });
-  process.on("SIGTERM", () => {
-    shutdown();
-    process.exit(143);
-  });
-
-  // One synchronous refresh so the first page load has data, then poll.
-  await watcher.refresh().catch(() => {});
-  watcher.start();
-
+  const webRoot = findWebRoot();
+  const dbPath = dbPathForRepo(repoRoot);
   const url = `http://127.0.0.1:${port}`;
-  const uiLine = findWebRoot()
-    ? `UI:         ${url}`
-    : `UI:         not built — run \`pnpm build\` to serve it from ${url}\n              (dev mode: open the vite dev server at http://localhost:5173)`;
-  console.log(`diffreview ${pkg.version}
+
+  // The server layer starts listening during layer construction; the program
+  // body then runs with all services in scope and parks forever (interrupts
+  // via SIGINT/SIGTERM unwind the scope: server close, poll fiber interrupt,
+  // sqlite close, session-file clear).
+  // E: ServeError (http) | PlatformError (static) | StoreError (db open)
+  const MainLive = serverLayer({
+    repoRoot,
+    port,
+    intervalMs: 2000,
+    open: values.open ?? false,
+    dbPath,
+    webRoot,
+  });
+
+  const program = Effect.gen(function*() {
+    const session = yield* Session;
+    const watcher = yield* Watcher;
+    const config = yield* ServerConfig;
+
+    yield* Effect.catch(session.write({
+      port: config.port,
+      pid: process.pid,
+      repoRoot: config.repoRoot,
+      startedAt: Date.now(),
+    }), (err) => Effect.sync(() => fail(errMessage(err))));
+    // Cleared on any program exit path (SIGINT/SIGTERM interrupt included).
+    yield* Effect.addFinalizer(() => session.clear(config.repoRoot));
+
+    // One synchronous refresh so the first page load has data, then poll.
+    yield* Effect.catch(watcher.refresh(), () => Effect.void);
+
+    const uiLine = webRoot
+      ? `UI:         ${url}`
+      : `UI:         not built — run \`pnpm build\` to serve it from ${url}\n              (dev mode: open the vite dev server at http://localhost:5173)`;
+    yield* Effect.sync(() => console.log(`diffreview ${pkg.version}
 
   Reviewing:  ${repoRoot}
   ${uiLine}
-  Comments:   ${dbPathForRepo(repoRoot)}
+  Comments:   ${dbPath}
 
   opencode MCP config (add to opencode.json):
     "mcp": {
       "diffreview": { "type": "local", "command": ["diffreview-mcp"], "enabled": true }
     }
-`);
+`));
 
-  if (values.open) {
-    spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
-  }
+    if (config.open) {
+      yield* Effect.sync(() => {
+        spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+      });
+    }
+
+    yield* Effect.never;
+  }).pipe(
+    Effect.provide(MainLive),
+    // Startup failures surface from layer construction (e.g. EADDRINUSE).
+    Effect.catch((err) => {
+      if (errMessage(err).toLowerCase().includes("eaddrinuse")) {
+        return Effect.sync(() =>
+          fail(`port ${port} is already in use (another diffreview instance running? try --port)`)
+        );
+      }
+      return Effect.sync(() => fail(`could not start server: ${errMessage(err)}`));
+    }),
+  );
+
+  // Scoped: the session/db finalizers run when the fiber is interrupted
+  // (SIGINT/SIGTERM via runMain). Effect.never keeps the scope open until then.
+  NodeRuntime.runMain(Effect.scoped(program));
 }
 
 void main().catch((err) => {

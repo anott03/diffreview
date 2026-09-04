@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
-import { afterAll, describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { afterAll, describe, expect, it } from "@effect/vitest";
 import { diffFilePath } from "../shared/types";
-import { getDiffFiles, hasHead } from "./git";
+import { Git, NotARepoError } from "./git";
 
 const execFileAsync = promisify(execFile);
 const git = (cwd: string, args: string[]) => execFileAsync("git", args, { cwd });
@@ -26,7 +27,11 @@ afterAll(async () => {
   await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
 });
 
-describe("getDiffFiles", () => {
+/** Runs an effect requiring the Git service against the real Git layer. */
+const run = <A, E>(effect: Effect.Effect<A, E, Git>) =>
+  Effect.runPromise(effect.pipe(Effect.provide(Git.layer)));
+
+describe("Git.getDiffFiles", () => {
   it("collects modified, staged, and untracked files", async () => {
     const dir = await makeRepo();
     // Unstaged modification
@@ -37,7 +42,7 @@ describe("getDiffFiles", () => {
     // Untracked file
     await writeFile(join(dir, "untracked.txt"), "hello\nworld\n");
 
-    const files = await getDiffFiles(dir);
+    const files = await run(Git.use((g) => g.getDiffFiles(dir)));
     const byPath = new Map(files.map((f) => [diffFilePath(f), f]));
 
     const modified = byPath.get("a.txt");
@@ -59,17 +64,30 @@ describe("getDiffFiles", () => {
     const dir = await mkdtemp(join(tmpdir(), "diffreview-git-"));
     dirs.push(dir);
     await git(dir, ["init", "--quiet"]);
-    expect(await hasHead(dir)).toBe(false);
+    expect(await run(Git.use((g) => g.hasHead(dir)))).toBe(false);
 
     await writeFile(join(dir, "first.txt"), "alpha\n");
     await git(dir, ["add", "first.txt"]);
     await writeFile(join(dir, "unstaged.txt"), "beta\n");
 
-    const files = await getDiffFiles(dir);
+    const files = await run(Git.use((g) => g.getDiffFiles(dir)));
     const byPath = new Map(files.map((f) => [diffFilePath(f), f]));
     expect(byPath.get("first.txt")?.status).toBe("added");
     expect(byPath.get("first.txt")?.additions).toBe(1);
     expect(byPath.get("unstaged.txt")?.status).toBe("added");
+  });
+
+  it("shows untracked symlinks as the link path, not target contents", async () => {
+    const dir = await makeRepo();
+    await writeFile(join(dir, "secret.txt"), "TOP SECRET");
+    await symlink(join(dir, "secret.txt"), join(dir, "link.txt"));
+
+    const files = await run(Git.use((g) => g.getDiffFiles(dir)));
+    const link = files.find((f) => f.newPath === "link.txt");
+    expect(link?.isBinary).toBe(false);
+    // git-faithful: a symlink blob's content is the link target path
+    expect(link?.hunks[0]?.lines[0]?.content).toBe(join(dir, "secret.txt"));
+    expect(JSON.stringify(link)).not.toContain("TOP SECRET");
   });
 
   it("marks untracked binary files", async () => {
@@ -77,7 +95,7 @@ describe("getDiffFiles", () => {
     const bin = Buffer.from([0x89, 0x50, 0x00, 0x0d, 0x1a, 0x0a]);
     await writeFile(join(dir, "blob.bin"), bin);
 
-    const files = await getDiffFiles(dir);
+    const files = await run(Git.use((g) => g.getDiffFiles(dir)));
     const blob = files.find((f) => f.newPath === "blob.bin");
     expect(blob?.isBinary).toBe(true);
     expect(blob?.hunks).toHaveLength(0);
@@ -85,6 +103,23 @@ describe("getDiffFiles", () => {
 
   it("returns an empty array for a clean repo", async () => {
     const dir = await makeRepo();
-    expect(await getDiffFiles(dir)).toEqual([]);
+    expect(await run(Git.use((g) => g.getDiffFiles(dir)))).toEqual([]);
+  });
+});
+
+describe("Git.getRepoRoot", () => {
+  it("returns the canonical root for a repo", async () => {
+    const dir = await makeRepo();
+    expect(await run(Git.use((g) => g.getRepoRoot(dir)))).toBe(dir);
+  });
+
+  it("fails with NotARepoError for a non-repo directory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "diffreview-norepo-"));
+    dirs.push(dir);
+    const error = await run(
+      Effect.flip(Git.use((g) => g.getRepoRoot(dir)))
+    );
+    expect(error).toBeInstanceOf(NotARepoError);
+    expect(error.cwd).toBe(dir);
   });
 });
