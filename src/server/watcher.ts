@@ -1,13 +1,13 @@
 /**
  * Poll-based diff watcher as an Effect service.
  *
- * Replaces the old `DiffWatcher` class (removed from git.ts in this step):
+ * Replaces the old `DiffWatcher` class:
  * - the poll loop is a fiber forked in the layer's scope (interrupted on
  *   teardown — no more setInterval/stop), sequential by construction so slow
  *   git runs never overlap, with a semaphore serializing explicit and polled
  *   refreshes
  * - change fan-out goes through a `PubSub<SseEvent>` (replaces the onChange
- *   callback); step 7's SSE endpoint subscribes to `changes`, and the HTTP
+ *   callback); the SSE endpoint subscribes to `changes`, and the HTTP
  *   comment handlers publish "comments" events via `publish`
  *
  */

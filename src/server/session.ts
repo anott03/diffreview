@@ -38,13 +38,13 @@ export interface SessionError {
 /**
  * Session file access as an Effect service.
  *
- * The free functions above are the interim bridge (cli + mcp discovery still
- * call them directly); step 9 of .thoughts/effect-migration.md moves the cli
- * flow onto this service, wired through MainLive.
+ * The free functions above are the file-level implementation: the service
+ * wraps them for the cli, and the MCP client calls readSession() directly for
+ * discovery.
  *
  * Deliberately NOT auto-clearing on layer release: the session file must
  * outlive test-scoped layers, and the cli flow owns the explicit
- * write-after-listen / clear-on-shutdown pairing (kept verbatim in step 9).
+ * write-after-listen / clear-on-shutdown pairing.
  */
 export class Session extends Context.Service<Session, {
   /** Write/overwrite the session file for `info.repoRoot`. */
