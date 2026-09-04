@@ -24,7 +24,7 @@ export const SideSchema = Schema.Literals(["old", "new"]);
 export const StatusSchema = Schema.Literals(["open", "addressed"]);
 export const AuthorSchema = Schema.Literals(["user", "agent"]);
 
-/** Positive (1-based) line number — matches zod `z.number().int().positive()`. */
+/** Positive (1-based) line number. */
 const PositiveIntSchema = Schema.Finite.pipe(
   Schema.check(Schema.isInt(), Schema.isGreaterThan(0))
 );

@@ -1,7 +1,7 @@
 /**
  * Immutable server configuration.
  *
- * Parsed once by the cli (step 9) and provided through the MainLive layer as
+ * Parsed once by the cli and provided through the MainLive layer as
  * `Layer.succeed` — a plain typed value, not env-backed `Config` (the cli
  * parses argv, not the environment).
  */

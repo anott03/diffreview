@@ -1,8 +1,7 @@
 /**
- * HTTP server composition (replaces the legacy Hono app in index.ts once the
- * cli switches over in step 9 of .thoughts/effect-migration.md).
+ * HTTP server composition (the Effect replacement for the legacy Hono app).
  *
- * Wire behavior mirrors index.ts:
+ * Wire behavior matches the legacy server:
  * - same REST paths, JSON shapes, and status codes (201/204/400/404/500)
  * - invalid payloads → 400 `{ error: "<message>" }` via manual body decoding
  *   in raw handlers (declared HttpApi payloads would render an empty 400)
