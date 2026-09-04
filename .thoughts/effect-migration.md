@@ -221,21 +221,41 @@ Rewrite the polling half of `src/server/git.ts` into its own module
       to the PubSub + a subscribe-side callback for the old Hono SSE code.
 - [ ] Migrate `git.test.ts` watcher tests to the new service.
 
-### Step 6 — `Session` service + `Config`
+### Step 6 — `Session` service + `Config` (DONE — awaiting review)
 
-- [ ] `paths.ts` stays as-is (pure functions).
-- [ ] `session.ts` → `Session` service: `write(info)`, `clear(repoRoot)`
-      (and `read` for potential future use). Layer = no-op acquire / clear-file
-      release only if we decide session cleanup should be automatic — keep the
-      current explicit behavior instead: cli flow calls `write` after listen and
-      `clear` in a finalizer, exactly as today.
-- [ ] Server configuration (port, repoRoot, open, intervalMs) passed as typed
-      service or `Config` values; `cli.ts` parses args as today
-      (`node:util parseArgs` stays — `effect/unstable/cli` is overkill here).
+- [x] `paths.ts` untouched (pure functions).
+- [x] `session.ts`: free functions kept verbatim as the interim bridge
+      (mcp discovery + cli still call them); added `Session` service
+      (write/read/clear, Semaphore-serialized write/clear, read returns null
+      on missing/corrupt like today; no auto-clear on layer release — the cli
+      owns the explicit write/clear pairing, kept verbatim in step 9).
+- [x] `session.test.ts`: 6 service tests + free-function bridge parity test
+      (XDG_DATA_HOME pointed at a tmpdir).
+- [x] `ServerConfig` service (repoRoot, port, intervalMs, open, dbPath,
+      webRoot) — provided via `Layer.succeed` at composition. NOTE: the
+      earlier step-6 summary wrongly claimed config.ts existed; it was
+      actually created during step 7 (handlers consume repoRoot).
 
-### Step 7 — HTTP layer: HttpApi definition
+### Step 7 — HTTP layer: HttpApi definition (DONE — awaiting review)
 
-New file: `src/server/api.ts`.
+New file: `src/server/api.ts`. Deviations from the plan, driven by v4 behavior
+discovered empirically (see http.test.ts):
+
+- Error payloads are TaggedError classes (`_tag` + `error` fields) with
+  HttpApiSchema.status annotations. Plain `{error}` structs with different
+  status annotations are indistinguishable to the union encoder — it always
+  matches the FIRST member (empirically produced 404/500 for bad payloads).
+  Wire body: `{"_tag":"BadRequestError","error":"..."}` — clients read
+  `.error`; extra `_tag` is a harmless wire difference.
+- POST/PATCH/DELETE use handleRaw with manual `HttpServerRequest.schemaBodyJson`
+  decoding so invalid payloads render 400 `{ error: "<message>" }` (declared
+  HttpApi payloads render an EMPTY 400 via HttpApiSchemaError).
+- `/api/events` is a group endpoint with `HttpApiSchema.StreamSse` (events
+  mode) — no raw router route needed, and the handler shares the api
+  handlers' Watcher instance (single PubSub).
+- Unmatched `/api/*` → JSON 404 via a raw `HttpRouter.add("*", "/api/*")`
+  layer (no service requirements — avoids Request-wrapped provide issues).
+
 
 - [ ] `HttpApi` instance with one group ("api") and endpoints:
       - `GET /api/meta` → `Meta` schema
@@ -257,18 +277,30 @@ New file: `src/server/api.ts`.
       a 30s ping merged via `Stream.merge(Stream.sleep(30s) ...)`; abort
       cleanup via stream scope (replaces `sseClients` Set + `clearInterval`).
 
-### Step 8 — HTTP layer: server composition
+### Step 8 — HTTP layer: server composition (DONE — awaiting review)
 
-New file: `src/server/http.ts` (replaces most of `src/server/index.ts`):
+New file: `src/server/http.ts` (+ integration tests in `http.test.ts`):
 
-- [ ] `HttpApiBuilder` implementing the endpoints; handlers `provide` the
-      `CommentStore`/`Watcher`/`Git` services.
-- [ ] Re-anchor persistence logic from `GET /api/comments` moves verbatim into
-      that handler (write-back of re-anchored line numbers).
-- [ ] Static UI serving + SPA fallback: keep `findWebRoot()` as-is; serve
-      `index.html` fallback + `HttpServerResponse.file` for assets. In dev
-      (no `dist/web`), keep the same 404 text.
-- [ ] Bind `127.0.0.1` and the configured port via `NodeHttpServer`.
+- [x] `HttpApiBuilder.group` handlers with Git/Watcher/CommentStore/ServerConfig
+      in scope; `parseBody` helper for the raw decode-400 flow.
+- [x] Re-anchor persistence logic moved verbatim into the listComments handler.
+- [x] SSE handler: `watcher.changes` mapped to `{id, event, data}` frames +
+      30s pings via `Stream.fromSchedule(Schedule.spaced)` (first ping is
+      immediate vs 30s in the legacy loop — clients ignore pings).
+- [x] Static serving: `HttpStaticServer.layer({root, spa: true, index})` when
+      built (webRoot passed via ServerConfig); actionable 404 text route when
+      not built. findWebRoot() stays in index.ts until step 9 moves it.
+- [x] `serverLayer(options)`: `HttpRouter.serve(mergeAll(...))` +
+      `NodeHttpServer.layer(createServer, {port, host: "127.0.0.1"})` +
+      NodeFileSystem/NodePath + all domain services. NOTE: `Layer.provide([...])`
+      does NOT resolve requirements BETWEEN array members — Watcher.layer must
+      be pre-composed with `.pipe(Layer.provide(Git.layer))`.
+- [x] Integration tests (toWebHandler, real git repo + :memory: store): meta
+      shape, diff shape, CRUD statuses (201/200/204/404), invalid payloads
+      400, invalid status query 400, unknown /api 404 JSON, unbuilt-UI 404
+      text, SSE frame delivery. 70 tests green; typecheck + build green.
+- [ ] cli.ts switch-over happens in step 9 (legacy server still live).
+
 
 ### Step 9 — Entry point (`cli.ts`) & MainLive
 
