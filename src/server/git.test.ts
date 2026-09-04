@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -75,6 +75,19 @@ describe("Git.getDiffFiles", () => {
     expect(byPath.get("first.txt")?.status).toBe("added");
     expect(byPath.get("first.txt")?.additions).toBe(1);
     expect(byPath.get("unstaged.txt")?.status).toBe("added");
+  });
+
+  it("shows untracked symlinks as the link path, not target contents", async () => {
+    const dir = await makeRepo();
+    await writeFile(join(dir, "secret.txt"), "TOP SECRET");
+    await symlink(join(dir, "secret.txt"), join(dir, "link.txt"));
+
+    const files = await run(Git.use((g) => g.getDiffFiles(dir)));
+    const link = files.find((f) => f.newPath === "link.txt");
+    expect(link?.isBinary).toBe(false);
+    // git-faithful: a symlink blob's content is the link target path
+    expect(link?.hunks[0]?.lines[0]?.content).toBe(join(dir, "secret.txt"));
+    expect(JSON.stringify(link)).not.toContain("TOP SECRET");
   });
 
   it("marks untracked binary files", async () => {

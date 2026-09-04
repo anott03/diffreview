@@ -3,7 +3,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, readlink, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
@@ -151,12 +151,24 @@ export class Git extends Context.Service<Git, {
           // A `null` failure means "vanished between listing and reading" —
           // the caller skips it.
           const st = yield* Effect.tryPromise({
-            try: () => stat(abs),
+            try: () => lstat(abs),
             // A failed stat means "vanished between listing and reading" —
             // surfaced as a null result for the caller to skip.
             catch: (cause) => cause
           }).pipe(Effect.catch(() => Effect.succeed(null)));
-          if (st === null || !st.isFile()) return null;
+          if (st === null) return null;
+          // Untracked symlinks are shown git-faithfully: the blob content is
+          // the link target path — never the target's contents (which could
+          // point outside the repository).
+          if (st.isSymbolicLink()) {
+            const target = yield* Effect.tryPromise({
+              try: () => readlink(abs, "utf8"),
+              catch: (cause) => cause
+            }).pipe(Effect.catch(() => Effect.succeed(null)));
+            if (target === null) return null;
+            return buildUntrackedFile(path, target);
+          }
+          if (!st.isFile()) return null;
           if (st.size > MAX_UNTRACKED_BYTES) return buildUntrackedBinaryFile(path);
           const buf = yield* Effect.tryPromise({
             try: () => readFile(abs),
@@ -211,7 +223,7 @@ export class Git extends Context.Service<Git, {
         const parts = [headSha || "nohead", status, diffText];
         for (const path of untrackedPaths) {
           const st = yield* Effect.tryPromise({
-            try: () => stat(join(root, path)),
+            try: () => lstat(join(root, path)),
             catch: (cause) => cause
           }).pipe(Effect.catch(() => Effect.succeed(null)));
           // Vanished — the listing above is already stale; next cycle settles.

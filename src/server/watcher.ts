@@ -81,7 +81,9 @@ export class Watcher extends Context.Service<Watcher, {
 
         return Watcher.of({
           files: Effect.map(Ref.get(filesRef), (files) => [...files]),
-          refresh,
+          // Expose the semaphore-guarded refresh so explicit callers (e.g. the
+          // cli's startup refresh) serialize with the poll loop too.
+          refresh: () => refreshLocked.withPermits(1)(refresh()),
           publish: (event) => PubSub.publish(pubsub, event),
           changes: Stream.fromPubSub(pubsub)
         });
