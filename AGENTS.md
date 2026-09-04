@@ -32,15 +32,30 @@ pnpm link --global   # provides `diffreview` and `diffreview-mcp`
 ## High-level architecture
 
 ```text
-diffreview CLI (src/server/cli.ts)
-  ├── DiffWatcher    polls git, emits "diff changed" events
-  ├── CommentStore   SQLite at ~/.local/share/diff-review/<repo-hash>.sqlite
-  ├── Hono REST API  /api/{meta,diff,comments,events} + static UI
-  └── session file   ~/.local/share/diff-review/sessions/<repo-hash>.json
-                                                       ▲
-                                                       │ HTTP discovery
-                                     diffreview-mcp (src/mcp/server.ts)
+diffreview CLI (src/server/cli.ts)          Effect v4 (pinned beta)
+  ├── Git service          git commands, diff collection, tagged errors
+  ├── CommentStore service SQLite at ~/.local/share/diff-review/<repo-hash>.sqlite
+  ├── Watcher service      poll fiber + change PubSub (SSE fan-out)
+  ├── Session service      ~/.local/share/diff-review/sessions/<repo-hash>.json
+  ├── HttpApi REST API     /api/{meta,diff,comments,events} (HttpApiBuilder,
+  │                        StreamSse endpoint), served over NodeHttpServer
+  └── HttpStaticServer     dist/web assets + SPA fallback
+                                                      ▲
+                                                      │ HTTP discovery
+                                    diffreview-mcp (src/mcp/server.ts)
 ```
+
+- Effect composition rules (see .thoughts/effect-migration.md for the full
+  migration record):
+  - Services are `Context.Service` classes with a static `layer`
+    (`Layer.effect` / `Layer.acquireRelease` for scoped resources).
+  - `Layer.mergeAll` collapses service outputs — compose services with
+    `Layer.merge`; `Layer.provide([array])` does not resolve requirements
+    between array members (pre-compose, e.g. `Watcher.layer.pipe(Layer.provide(Git.layer))`).
+  - Handlers that must render their own errors use `handleRaw`; declared
+    HttpApi payloads render an empty 400 on decode failure.
+  - Error payloads are TaggedError classes — same-shaped plain structs are
+    indistinguishable to the endpoint error-union encoder (first member wins).
 
 - UI and MCP are **read-only consumers** of the server. The server is the only
   writer to the comment store.
@@ -54,12 +69,16 @@ diffreview CLI (src/server/cli.ts)
 src/
   shared/types.ts   # Cross-process contracts (no runtime deps)
   server/
-    cli.ts          # Entry point, arg parsing, startup banner
-    index.ts        # Hono app, REST routes, SSE, static UI/SPA fallback
-    git.ts          # git commands + DiffWatcher
+    cli.ts          # Entry point: arg parsing, serverLayer + NodeRuntime.runMain
+    api.ts          # HttpApi definition (endpoints, error classes, StreamSse)
+    api-schemas.ts  # Effect Schema contracts mirroring shared/types.ts
+    http.ts         # HttpApiBuilder handlers, static/SSE composition, serverLayer
+    git.ts          # Git service (+ standalone getRepoRoot for cli/mcp)
     diff.ts         # parse-diff wrapper + untracked synthesis + anchor resolution
-    store.ts        # node:sqlite wrapper for comments
-    session.ts      # session file write/cleanup
+    store.ts        # CommentStore service (node:sqlite via sync core fns)
+    watcher.ts      # Watcher service (poll fiber + change PubSub)
+    session.ts      # Session service (+ free fns used by the MCP client)
+    config.ts       # ServerConfig service
     paths.ts        # ~/.local/share/diff-review paths
   web/
     App.tsx         # Shell, SSE wiring, toasts
@@ -75,9 +94,11 @@ src/
 
 ### Type sharing
 
-- `src/shared/types.ts` must stay dependency-free. Never import `zod` or React
-  there.
-- Server-side zod schemas live in `src/server/`.
+- `src/shared/types.ts` must stay dependency-free. Never import `effect`,
+  `zod`, or React there.
+- Server-side Effect Schema contracts live in `src/server/api-schemas.ts`;
+  they must stay shape-compatible with `shared/types.ts` (asserted by
+  `api-schemas.test.ts`).
 
 ### Comment anchoring rule
 
@@ -118,7 +139,11 @@ Never add direct SQLite access from `src/web/` or `src/mcp/`.
 
 ## Common pitfalls
 
-- **Blank page in dev:** if `findWebRoot()` in `src/server/index.ts` serves
+- **Effect beta pinning:** the server runs on `effect@4.0.0-beta.107`
+  (pinned, no caret) with `@effect/platform-node` / `@effect/vitest` at the
+  same version. Bump all three together; check the
+  v4 migration guides when upgrading.
+- **Blank page in dev:** if `findWebRoot()` in `src/server/http.ts` serves
   `src/web/` source files instead of `dist/web/`, browsers cannot execute raw
   `.tsx`. The current guard requires both `index.html` and `assets/` to exist.
   Dev UI must be opened at `http://localhost:5173`, not at the API port.
@@ -132,8 +157,9 @@ Never add direct SQLite access from `src/web/` or `src/mcp/`.
 ## Adding a feature
 
 1. Update `src/shared/types.ts` if contracts change.
-2. Add server-side implementation in `src/server/` and route in
-   `src/server/index.ts` if needed.
+2. Mirror the contract in `src/server/api-schemas.ts` (the parity test fails
+   otherwise) and add the endpoint in `src/server/api.ts` + handler in
+   `src/server/http.ts` if needed.
 3. Add/adjust tests in `src/**/*.test.ts`.
 4. Update `src/web/` if the UI needs new controls or display.
 5. Update `src/mcp/server.ts` if agents need a new tool.

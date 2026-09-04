@@ -4,14 +4,9 @@
  * Per-repo SQLite store. The HTTP server is the single writer; the MCP
  * server reaches it over HTTP, so SQLite only ever sees one process.
  *
- * Three layers live here:
- * - sync core functions — single source of truth for SQL + row mapping,
- *   shared by both implementations below
- * - `CommentStoreCompat` — the legacy synchronous class, kept as the interim
- *   implementation behind the Hono routes (deleted when the HTTP layer
- *   migrates to Effect in step 7+ of .thoughts/effect-migration.md)
- * - `CommentStore` — the Effect service (`Effect<_, StoreError>` methods,
- *   layer with acquireRelease lifecycle replacing the manual `close()`)
+ * The sync core functions hold the SQL + row mapping; `CommentStore` is the
+ * Effect service (`Effect<_, StoreError>` methods, layer with acquireRelease
+ * lifecycle replacing the manual `close()`).
  */
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
@@ -169,42 +164,6 @@ function updateComment(db: DatabaseSync, id: string, patch: UpdateCommentInput):
 function removeComment(db: DatabaseSync, id: string): boolean {
   const result = db.prepare("DELETE FROM comments WHERE id = ?").run(id);
   return Number(result.changes) > 0;
-}
-
-// ---------------------------------------------------------------------------
-// Legacy synchronous store (interim bridge; deleted in step 7+)
-// ---------------------------------------------------------------------------
-
-export class CommentStoreCompat {
-  private db: DatabaseSync;
-
-  constructor(dbPath: string) {
-    this.db = openDatabaseSync(dbPath);
-  }
-
-  list(filter: CommentFilter = {}): Comment[] {
-    return listComments(this.db, filter);
-  }
-
-  get(id: string): Comment | null {
-    return getComment(this.db, id);
-  }
-
-  create(input: CreateCommentInput): Comment {
-    return insertComment(this.db, input);
-  }
-
-  update(id: string, patch: UpdateCommentInput): Comment | null {
-    return updateComment(this.db, id, patch);
-  }
-
-  remove(id: string): boolean {
-    return removeComment(this.db, id);
-  }
-
-  close(): void {
-    this.db.close();
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,18 +1,12 @@
 /**
- * Git access as an Effect service.
- *
- * `Git` is the domain service (typed errors, composable). The free functions
- * below it (`git`, `getRepoRoot`, `hasHead`, `getMeta`, `getDiffFiles`) are an
- * interim bridge over a module-level ManagedRuntime so the existing Hono
- * routes and tests keep working until the HTTP layer is
- * migrated (migration steps 5-10 of .thoughts/effect-migration.md).
+ * Git access as an Effect service (typed errors, Layer-composable).
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import type { DiffFile, Meta } from "../shared/types";
 import { buildUntrackedBinaryFile, buildUntrackedFile, parseGitDiff } from "./diff";
 
@@ -247,32 +241,32 @@ export class Git extends Context.Service<Git, {
 }
 
 // ---------------------------------------------------------------------------
-// Interim bridge (removed when Hono/DiffWatcher migrate to Effect)
+// Standalone repo-root resolution
 // ---------------------------------------------------------------------------
 
-const runtime = ManagedRuntime.make(Git.layer);
-
-export async function git(root: string, args: string[]): Promise<string> {
-  return runtime.runPromise(Git.use((g) => g.run(root, args)));
-}
-
+/**
+ * Resolves the canonical git repo root for `cwd` — shared by the cli (before
+ * the server layer exists) and diffreview-mcp's discovery flow, both of which
+ * run outside the server's Effect runtime. Throws
+ * `Error("not a git repository: <cwd>")` on failure (message consumed by the
+ * cli's fail()).
+ */
 export async function getRepoRoot(cwd: string): Promise<string> {
-  return runtime.runPromise(
-    Git.use((g) => g.getRepoRoot(cwd)).pipe(
-      // Preserve the pre-Effect error message consumed by cli.ts.
-      Effect.mapError((e) => new Error(`not a git repository: ${e.cwd}`))
-    )
-  );
-}
-
-export async function hasHead(root: string): Promise<boolean> {
-  return runtime.runPromise(Git.use((g) => g.hasHead(root)));
-}
-
-export async function getMeta(root: string, files: DiffFile[]): Promise<Meta> {
-  return runtime.runPromise(Git.use((g) => g.getMeta(root, files)));
-}
-
-export async function getDiffFiles(root: string): Promise<DiffFile[]> {
-  return runtime.runPromise(Git.use((g) => g.getDiffFiles(root)));
+  let top: string;
+  try {
+    top = (
+      await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+        cwd,
+        maxBuffer: GIT_BUFFER_BYTES,
+      })
+    ).stdout.trim();
+  } catch {
+    throw new Error(`not a git repository: ${cwd}`);
+  }
+  // Canonicalize (resolves symlinks) so the store/session hash is stable.
+  try {
+    return await realpath(top);
+  } catch {
+    throw new Error(`not a git repository: ${cwd}`);
+  }
 }

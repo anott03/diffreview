@@ -105,7 +105,16 @@ pnpm build
 
 ## Architecture
 
-- `src/server/comment-store` — single source of truth for comments.
+The server is built on **Effect v4** (pinned beta): Effect services
+(`Git`, `CommentStore`, `Watcher`, `Session`, `ServerConfig`) composed as
+Layers, an `HttpApi`-typed REST API served over `NodeHttpServer`, and SSE via
+`HttpApiSchema.StreamSse`.
+
+- `src/server/` — Effect services + HTTP API + static UI serving:
+  - `git.ts` (`Git` service), `store.ts` (`CommentStore`, node:sqlite),
+    `watcher.ts` (poll loop + change PubSub), `session.ts`, `config.ts`
+  - `api.ts` (HttpApi definition), `api-schemas.ts` (Effect Schema contracts
+    mirroring `src/shared/types.ts`), `http.ts` (handlers + server layer)
 - `src/web/` — React + Tailwind + Cloudflare Kumo UI.
 - `src/mcp/` — MCP stdio server that discovers the running instance via a
   session file at `~/.local/share/diff-review/sessions/`.

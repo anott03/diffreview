@@ -10,11 +10,8 @@
  *   callback); step 7's SSE endpoint subscribes to `changes`, and the HTTP
  *   comment handlers publish "comments" events via `publish`
  *
- * `WatcherCompat` is the interim bridge for the Hono routes and cli (deleted
- * in step 7+), preserving the old sync `files`/`onChange`/`refresh`/`start`/
- * `stop` surface.
  */
-import { Context, Effect, Layer, ManagedRuntime, PubSub, Ref, Semaphore, Stream } from "effect";
+import { Context, Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import type { Stream as StreamT } from "effect";
 import type { DiffFile, SseEvent } from "../shared/types";
 import { parseGitDiff } from "./diff";
@@ -90,67 +87,4 @@ export class Watcher extends Context.Service<Watcher, {
         });
       })
     );
-}
-
-// ---------------------------------------------------------------------------
-// Interim bridge (removed when Hono/cli migrate to Effect)
-// ---------------------------------------------------------------------------
-
-export class WatcherCompat {
-  /** Latest parsed diff. Empty until the first successful refresh. */
-  files: DiffFile[] = [];
-  /** Called after `files` changes (consumed by the Hono SSE fan-out). */
-  onChange?: (files: DiffFile[]) => void;
-
-  private runtime: ManagedRuntime.ManagedRuntime<Watcher, never>;
-
-  constructor(root: string, intervalMs: number) {
-    this.runtime = ManagedRuntime.make(
-      Watcher.layer({ root, intervalMs }).pipe(Layer.provide(Git.layer))
-    );
-    // Mirror poll-driven changes into the sync surface (files/onChange):
-    // the poll loop lives in the service layer and publishes to the PubSub,
-    // bypassing WatcherCompat.refresh() — without this fiber, deps.watcher.files
-    // would go stale after startup (and SSE would never fire on poll changes).
-    // "comments" events are published by the HTTP handlers directly and are
-    // ignored here. Interrupted by stop() via runtime disposal.
-    this.runtime.runFork(
-      Watcher.use((w) =>
-        Stream.runForEach(w.changes, (event) =>
-          Effect.sync(() => {
-            if (event.type === "diff") void this.syncFiles();
-          })
-        )
-      )
-    );
-  }
-
-  private async syncFiles(): Promise<void> {
-    this.files = await this.runtime
-      .runPromise(Watcher.use((w) => w.files))
-      .catch(() => this.files);
-    this.onChange?.(this.files);
-  }
-
-  /** Re-collect state; mirrors the change into the sync `files` field and
-   *  fires `onChange` only when the diff actually changed. Errors are
-   *  swallowed (transient git failures), matching the old class. */
-  async refresh(): Promise<void> {
-    const changed = await this.runtime
-      .runPromise(Watcher.use((w) => w.refresh()))
-      .catch(() => false);
-    if (!changed) return;
-    await this.syncFiles();
-  }
-
-  /** Polling starts when the layer builds (first runPromise); this ensures
-   *  the layer is built even if `refresh()` was never called. */
-  start(): void {
-    void this.runtime.runPromise(Watcher.use((w) => w.files)).catch(() => {});
-  }
-
-  /** Interrupts the poll fiber and releases the underlying Git service. */
-  stop(): void {
-    void this.runtime.dispose().catch(() => {});
-  }
 }
