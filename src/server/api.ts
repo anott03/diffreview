@@ -1,7 +1,7 @@
 /**
  * REST API definition (Effect HttpApi) — wire-compatible with the legacy
- * Hono routes in src/server/index.ts: same paths, JSON shapes, and status
- * codes (the web UI and diffreview-mcp parse these).
+ * Hono server: same paths, JSON shapes, and status codes (the web UI and
+ * diffreview-mcp parse these).
  *
  * Error payloads are `{ error: string }` bodies (plus a `_tag` discriminator)
  * annotated with their HTTP status via HttpApiSchema.status.
@@ -54,10 +54,9 @@ const SseEventCodec = Schema.Struct({
 /**
  * `/api` group.
  *
- * The POST/PATCH/DELETE handlers are declared `handleRaw` (interim) so the
- * legacy exact-shape validation in src/server/index.ts stays in force until
- * step 9 (invalid payloads → 400 with a message there, vs. an empty
- * HttpApiSchemaError 400 from a declared payload).
+ * The POST/PATCH/DELETE handlers are declared `handleRaw` so invalid payloads
+ * render the same `400 { error: "<message>" }` bodies as the legacy server
+ * (declared HttpApi payloads would render an empty `HttpApiSchemaError` 400).
  */
 export class ApiGroup extends HttpApiGroup.make("api")
   .add(

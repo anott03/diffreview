@@ -105,7 +105,7 @@ pnpm build
 
 ## Architecture
 
-The server is built on **Effect v4** (pinned beta): Effect services
+The server is built on **Effect v4** (pinned rc): Effect services
 (`Git`, `CommentStore`, `Watcher`, `Session`, `ServerConfig`) composed as
 Layers, an `HttpApi`-typed REST API served over `NodeHttpServer`, and SSE via
 `HttpApiSchema.StreamSse`.

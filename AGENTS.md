@@ -32,7 +32,7 @@ pnpm link --global   # provides `diffreview` and `diffreview-mcp`
 ## High-level architecture
 
 ```text
-diffreview CLI (src/server/cli.ts)          Effect v4 (pinned beta)
+diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
   ├── Git service          git commands, diff collection, tagged errors
   ├── CommentStore service SQLite at ~/.local/share/diff-review/<repo-hash>.sqlite
   ├── Watcher service      poll fiber + change PubSub (SSE fan-out)
@@ -45,8 +45,7 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned beta)
                                     diffreview-mcp (src/mcp/server.ts)
 ```
 
-- Effect composition rules (see .thoughts/effect-migration.md for the full
-  migration record):
+- Effect composition rules:
   - Services are `Context.Service` classes with a static `layer`
     (`Layer.effect` / `Layer.acquireRelease` for scoped resources).
   - `Layer.mergeAll` collapses service outputs — compose services with

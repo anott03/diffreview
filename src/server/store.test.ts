@@ -1,8 +1,5 @@
 /**
  * Tests for the `CommentStore` Effect service.
- *
- * The legacy `CommentStoreCompat` class delegates to the same sync core
- * functions, so these cases cover both implementations' SQL behavior.
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
