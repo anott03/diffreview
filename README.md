@@ -20,7 +20,7 @@ comments that agents can retrieve and mark as addressed via MCP.
 Requires Node 24+ and a git repo.
 
 ```bash
-git clone <repo> diffreview
+git clone https://github.com/anott03/diffreview diffreview
 cd diffreview
 pnpm install
 pnpm build
