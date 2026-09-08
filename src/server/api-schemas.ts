@@ -70,6 +70,7 @@ export const CommentContextSchema = Schema.Struct({
 export const CommentSchema = Schema.Struct({
   id: Schema.String,
   reviewId: Schema.optionalKey(Schema.String),
+  reviewHead: Schema.optionalKey(Schema.String),
   historical: Schema.optionalKey(Schema.Boolean),
   file: Schema.String,
   side: SideSchema,

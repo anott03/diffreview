@@ -16,6 +16,9 @@ comments that agents can retrieve and mark as addressed via MCP.
   and legacy comments stay in Comments until you explicitly **Carry forward**
   to the current review. Carry-forward preserves open/addressed status; **Resolve**
   and **Reopen** change status without changing review membership.
+- **Browse comments** — switch between a flat chronological list and collapsible
+  file groups, sort by most recent or oldest first, and identify historical
+  reviews by their base commit's short hash.
 - **Unified or split diff** — toggle layout instantly.
 - **Agent integration via MCP** — `get_diff_summary`, `get_diff`,
   `list_review_comments`, `mark_comment_addressed`.

@@ -108,6 +108,9 @@ src/
   persists `(id, head)`; every observed HEAD change creates a fresh ID, including
   when returning to a previously seen HEAD. Watcher exposes files, HEAD, and
   review ID as one snapshot. An unborn HEAD uses the empty string.
+- `reviews` retains each review's base HEAD. Comments expose it as `reviewHead`
+  for short-hash pills. Migration recovers the known `current_review` mapping;
+  older reviews without metadata keep an absent hash rather than guessing.
 - Legacy comments have a NULL `review_id` and stay unscoped. Missing/different
   review IDs produce `historical: true` and are excluded from Changes (including
   sidebar counts), regardless of matching code or open/addressed status.
@@ -127,6 +130,11 @@ src/
   (migrated automatically). Saved excerpt line numbers do not change when the
   live anchor moves. Legacy comments without a snapshot can receive a matching
   HEAD excerpt at read time, falling back to `lineText` in the UI.
+- Comments default to a flat list sorted by most recent creation time. The
+  By file / List toggle switches between collapsible file groups and global
+  chronological order. File groups follow their first visible comment in that
+  order; filtering happens before sorting. Grouping, sort, and collapsed
+  file-group state live in App so switching views preserves them.
 
 ### Kumo / Tailwind
 

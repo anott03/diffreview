@@ -26,10 +26,18 @@ export function CommentThread({ comment, onResolve, onReopen, onDelete, onCarryF
   return (
     <div className="border-l-2 border-kumo-brand bg-kumo-elevated px-4 py-2.5 font-sans">
       <div className="mb-1 flex items-center gap-2">
-        <Badge variant="secondary">you</Badge>
         {comment.status === "addressed" && <Badge variant="success">addressed</Badge>}
         {comment.historical ? (
-          <Badge variant="secondary">{comment.reviewId ? "previous review" : "no review"}</Badge>
+          <Badge variant="secondary">
+            <span
+              className={comment.reviewHead ? "font-mono" : undefined}
+              title={comment.reviewHead ? `Review based on ${comment.reviewHead}` : undefined}
+            >
+              {comment.reviewHead ? comment.reviewHead.slice(0, 7)
+                : comment.reviewHead === "" ? "unborn HEAD"
+                : comment.reviewId ? "unknown commit" : "no review"}
+            </span>
+          </Badge>
         ) : comment.outdated && <Badge variant="warning">outside current diff</Badge>}
         <span className="text-xs text-kumo-subtle">
           line {comment.line} · {timeAgo(comment.createdAt)}

@@ -12,7 +12,6 @@ export function CommentContext({ comment }: { comment: Comment }) {
 
   return (
     <div className="mt-2 overflow-hidden rounded-md border border-kumo-line">
-      <div className="bg-kumo-base px-3 py-1.5 text-sm text-kumo-subtle">{label}</div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse font-mono text-sm" aria-label={label}>
           <tbody>

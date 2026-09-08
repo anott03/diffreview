@@ -149,6 +149,7 @@ server.registerTool(
         res.comments.map((c) => ({
           id: c.id,
           reviewId: c.reviewId ?? null,
+          reviewHead: c.reviewHead ?? null,
           historical: c.historical ?? true,
           file: c.file,
           side: c.side,

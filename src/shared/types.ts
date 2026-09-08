@@ -70,6 +70,8 @@ export interface Comment {
   id: string;
   /** Review membership. Absent for legacy comments until explicitly carried forward. */
   reviewId?: string;
+  /** Base commit of the review. Empty for unborn HEAD; absent when not recorded. */
+  reviewHead?: string;
   /** Computed at read time: this comment does not belong to the current review. */
   historical?: boolean;
   /** Canonical file path the comment is anchored to (see diffFilePath). */

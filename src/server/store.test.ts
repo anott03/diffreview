@@ -173,6 +173,63 @@ describe("CommentStore (Effect service)", () => {
       }
     }));
 
+  it.effect("retains historical review hashes after restart and updates them on carry-forward", () =>
+    Effect.gen(function*() {
+      const dir = mkdtempSync(join(tmpdir(), "diffreview-review-heads-"));
+      try {
+        const dbPath = join(dir, "test.sqlite");
+        const created = yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          const reviewId = yield* store.currentReview("aaaaaaa1111111");
+          const comment = yield* store.create({ ...baseInput, reviewId });
+          yield* store.currentReview("bbbbbbb2222222");
+          return comment;
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
+        yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          expect((yield* store.get(created.id))!.reviewHead).toBe("aaaaaaa1111111");
+          expect((yield* store.list({ file: baseInput.file, status: "open" }))[0]!.reviewHead).toBe("aaaaaaa1111111");
+          const reviewId = yield* store.currentReview("bbbbbbb2222222");
+          const carried = yield* store.update(created.id, { reviewId });
+          expect(carried!.reviewHead).toBe("bbbbbbb2222222");
+          expect(carried!.status).toBe("open");
+          const unborn = yield* store.currentReview("");
+          expect((yield* store.create({ ...baseInput, reviewId: unborn })).reviewHead).toBe("");
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }));
+
+  it.effect("migrates the known current review hash without guessing older review hashes", () =>
+    Effect.gen(function*() {
+      const dir = mkdtempSync(join(tmpdir(), "diffreview-review-migration-"));
+      try {
+        const dbPath = join(dir, "test.sqlite");
+        const ids = yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          const legacy = yield* store.create(baseInput);
+          const archived = yield* store.create({ ...baseInput, reviewId: yield* store.currentReview("head-a") });
+          const current = yield* store.create({ ...baseInput, reviewId: yield* store.currentReview("head-b") });
+          return { legacy: legacy.id, archived: archived.id, current: current.id };
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
+        const db = new DatabaseSync(dbPath);
+        db.exec("DROP TABLE reviews");
+        db.close();
+        yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          // Opening the old database recovers head-b from current_review before HEAD changes.
+          yield* store.currentReview("head-c");
+          expect((yield* store.get(ids.current))!.reviewHead).toBe("head-b");
+          expect((yield* store.get(ids.archived))!.reviewHead).toBeUndefined();
+          expect((yield* store.get(ids.legacy))!.reviewId).toBeUndefined();
+          expect((yield* store.get(ids.legacy))!.reviewHead).toBeUndefined();
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }));
+
   it.effect("fails with StoreError(op=open) when the database cannot be opened", () =>
     Effect.gen(function*() {
       // A *file* used as a directory makes mkdir/open fail deterministically.

@@ -35,11 +35,17 @@ CREATE TABLE IF NOT EXISTS current_review (
   id TEXT NOT NULL,
   head TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS reviews (
+  id TEXT PRIMARY KEY,
+  head TEXT NOT NULL
+);
+INSERT OR IGNORE INTO reviews (id, head) SELECT id, head FROM current_review;
 `;
 
 interface CommentRow {
   id: string;
   review_id: string | null;
+  review_head: string | null;
   file: string;
   side: string;
   line: number;
@@ -57,6 +63,7 @@ function rowToComment(row: CommentRow): Comment {
   return {
     id: row.id,
     ...(row.review_id !== null ? { reviewId: row.review_id } : {}),
+    ...(row.review_head !== null ? { reviewHead: row.review_head } : {}),
     file: row.file,
     side: row.side as CommentSide,
     line: row.line,
@@ -129,13 +136,15 @@ function listComments(db: DatabaseSync, filter: CommentFilter = {}): Comment[] {
   }
   const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
   const rows = db
-    .prepare(`SELECT * FROM comments${where} ORDER BY created_at ASC`)
+    .prepare(`SELECT comments.*, reviews.head AS review_head FROM comments
+      LEFT JOIN reviews ON reviews.id = comments.review_id${where} ORDER BY created_at ASC`)
     .all(...params) as unknown as CommentRow[];
   return rows.map(rowToComment);
 }
 
 function getComment(db: DatabaseSync, id: string): Comment | null {
-  const row = db.prepare("SELECT * FROM comments WHERE id = ?").get(id) as unknown as
+  const row = db.prepare(`SELECT comments.*, reviews.head AS review_head FROM comments
+    LEFT JOIN reviews ON reviews.id = comments.review_id WHERE comments.id = ?`).get(id) as unknown as
     | CommentRow
     | undefined;
   return row ? rowToComment(row) : null;
@@ -200,6 +209,7 @@ function currentReview(db: DatabaseSync, head: string): string {
   const current = db.prepare("SELECT id, head FROM current_review WHERE singleton = 1").get();
   if (current?.head === head) return current.id as string;
   const id = randomUUID();
+  db.prepare("INSERT INTO reviews (id, head) VALUES (?, ?)").run(id, head);
   db.prepare("INSERT OR REPLACE INTO current_review (singleton, id, head) VALUES (1, ?, ?)").run(id, head);
   return id;
 }

@@ -13,6 +13,7 @@ import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { CommentList } from "./components/CommentList";
+import type { CommentGrouping, CommentSort } from "./comment-groups";
 
 export function App() {
   const toasts = useKumoToastManager();
@@ -23,6 +24,9 @@ export function App() {
   const [layout, setLayout] = useState<Layout>("unified");
   const [view, setView] = useState<"changes" | "comments">("changes");
   const [commentStatus, setCommentStatus] = useState<CommentStatus | "all">("open");
+  const [commentSort, setCommentSort] = useState<CommentSort>("newest");
+  const [commentGrouping, setCommentGrouping] = useState<CommentGrouping>("list");
+  const [collapsedCommentPaths, setCollapsedCommentPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -151,6 +155,15 @@ export function App() {
     });
   }, []);
 
+  const toggleCommentCollapsed = useCallback((path: string) => {
+    setCollapsedCommentPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (!selectedPath) return;
     const el = fileRefs.current[selectedPath];
@@ -222,6 +235,12 @@ export function App() {
           <CommentList
             comments={comments}
             status={commentStatus}
+            sort={commentSort}
+            grouping={commentGrouping}
+            onGroupingChange={setCommentGrouping}
+            onSortChange={setCommentSort}
+            collapsedPaths={collapsedCommentPaths}
+            onToggleCollapse={toggleCommentCollapsed}
             onStatusChange={setCommentStatus}
             onCarryForward={carryForwardComment}
             onResolve={resolveComment}

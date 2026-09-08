@@ -308,6 +308,8 @@ describe("Effect HTTP server (wire contract)", () => {
       return res.json();
     };
     const open = await create(2, "repeated");
+    const firstHead = (await git(repoDir, ["rev-parse", "HEAD"])).stdout.trim();
+    expect(open.reviewHead).toBe(firstHead);
     const addressed = await create(2, "repeated");
     const missing = await create(1, "start");
     await patch(addressed.id, { status: "addressed", note: "Already handled" });
@@ -339,7 +341,7 @@ describe("Effect HTTP server (wire contract)", () => {
     for (const original of [open, addressed]) {
       const comment = (await list()).comments.find((c: any) => c.id === original.id);
       expect(comment).toMatchObject({
-        reviewId: first.reviewId, historical: true, outdated: true, line: 3, context: original.context
+        reviewId: first.reviewId, reviewHead: firstHead, historical: true, outdated: true, line: 3, context: original.context
       });
     }
     // Reopening a historical comment changes status only, not review membership.
@@ -348,6 +350,7 @@ describe("Effect HTTP server (wire contract)", () => {
     await patch(addressed.id, { status: "addressed" });
 
     const carried = await patch(addressed.id, { carryForward: true });
+    expect(carried.reviewHead).toBe((await git(repoDir, ["rev-parse", "HEAD"])).stdout.trim());
     expect(carried).toMatchObject({
       reviewId: next.reviewId, status: "addressed", note: "Already handled", line: 4,
       context: { source: "snapshot", line: 4 }
