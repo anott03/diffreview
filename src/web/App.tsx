@@ -149,6 +149,8 @@ export function App() {
     );
   }
 
+  const allCollapsed = files.length > 0 && files.every((file) => collapsedPaths.has(diffFilePath(file)));
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex shrink-0 items-center gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2">
@@ -175,6 +177,16 @@ export function App() {
         <span className="flex-1" />
         {openCount > 0 && <Badge variant="warning">{openCount} open</Badge>}
         <ThemeToggle />
+        {view === "changes" && (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={files.length === 0}
+            onClick={() => setCollapsedPaths(allCollapsed ? new Set() : new Set(files.map(diffFilePath)))}
+          >
+            {allCollapsed ? "Expand all" : "Collapse all"}
+          </Button>
+        )}
         <Tabs
           size="sm"
           tabs={[
