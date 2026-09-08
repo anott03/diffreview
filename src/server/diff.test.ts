@@ -183,6 +183,7 @@ describe("resolveAnchors", () => {
 
   const makeComment = (overrides: Partial<Comment> = {}): Comment => ({
     id: "c1",
+    reviewId: "review-1",
     file: "a.ts",
     side: "new",
     line: 3,
@@ -196,25 +197,37 @@ describe("resolveAnchors", () => {
   });
 
   it("keeps exact anchors", () => {
-    const [c] = resolveAnchors(makeFiles(false), [makeComment()]);
+    const [c] = resolveAnchors(makeFiles(false), [makeComment()], "review-1");
     expect(c!.outdated).toBe(false);
     expect(c!.line).toBe(3);
   });
 
   it("re-anchors by content when lines shift", () => {
-    const [c] = resolveAnchors(makeFiles(true), [makeComment()]);
+    const [c] = resolveAnchors(makeFiles(true), [makeComment()], "review-1");
     expect(c!.outdated).toBe(false);
     expect(c!.line).toBe(4);
   });
 
+  it("never re-anchors historical or unscoped comments, even when the same code reappears", () => {
+    for (const status of ["open", "addressed"] as const) {
+      const previous = makeComment({ reviewId: "previous-review", status });
+      const { reviewId: _reviewId, ...legacy } = makeComment({ status });
+      const resolved = resolveAnchors(makeFiles(true), [previous, legacy], "review-1");
+      for (const comment of resolved) {
+        expect(comment).toMatchObject({ historical: true, outdated: true, line: 3, status });
+      }
+      expect(resolved[1]!.reviewId).toBeUndefined();
+    }
+  });
+
   it("marks comments outdated when the line is gone", () => {
-    const [c] = resolveAnchors(makeFiles(false), [makeComment({ lineText: "deleted content" })]);
+    const [c] = resolveAnchors(makeFiles(false), [makeComment({ lineText: "deleted content" })], "review-1");
     expect(c!.outdated).toBe(true);
     expect(c!.line).toBe(3);
   });
 
   it("marks comments outdated when the file is gone", () => {
-    const [c] = resolveAnchors(makeFiles(false), [makeComment({ file: "other.ts" })]);
+    const [c] = resolveAnchors(makeFiles(false), [makeComment({ file: "other.ts" })], "review-1");
     expect(c!.outdated).toBe(true);
   });
 
@@ -240,7 +253,7 @@ describe("resolveAnchors", () => {
         ],
       },
     ];
-    const [c] = resolveAnchors(files, [makeComment({ side: "old", line: 5, lineText: "gone" })]);
+    const [c] = resolveAnchors(files, [makeComment({ side: "old", line: 5, lineText: "gone" })], "review-1");
     expect(c!.outdated).toBe(false);
   });
 });

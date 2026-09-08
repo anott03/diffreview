@@ -15,17 +15,26 @@ import { Context, Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import type { Stream as StreamT } from "effect";
 import type { DiffFile, SseEvent } from "../shared/types";
 import { parseGitDiff } from "./diff";
-import { Git, type GitError } from "./git";
+import { Git, GitError } from "./git";
+import { CommentStore, type StoreError } from "./store";
+
+export interface ReviewSnapshot {
+  files: DiffFile[];
+  reviewId: string;
+  head: string;
+}
 
 export class Watcher extends Context.Service<Watcher, {
   /** Latest parsed diff. Empty until the first successful refresh. */
   readonly files: Effect.Effect<Array<DiffFile>>;
+  /** Files and review identity from the same poll; initializes on first read. */
+  readonly snapshot: Effect.Effect<ReviewSnapshot, GitError | StoreError>;
   /**
    * Re-collect state; re-parse and publish only when the state hash changed.
    * Resolves `true` when the diff changed (and a "diff" event was published).
    * Serialized with the poll loop — never overlaps a running refresh.
    */
-  refresh(): Effect.Effect<boolean, GitError>;
+  refresh(): Effect.Effect<boolean, GitError | StoreError>;
   /** Publish an SSE event directly (e.g. "comments" from HTTP handlers). */
   publish(event: SseEvent): Effect.Effect<boolean>;
   /** Stream of SSE events: "diff" on poll-detected changes + published events. */
@@ -39,14 +48,15 @@ export class Watcher extends Context.Service<Watcher, {
   static readonly layer = (options: {
     root: string;
     intervalMs: number;
-  }): Layer.Layer<Watcher, never, Git> =>
+  }): Layer.Layer<Watcher, never, Git | CommentStore> =>
     Layer.effect(
       Watcher,
       Effect.gen(function*() {
         const git = yield* Git;
+        const store = yield* CommentStore;
         const { root, intervalMs } = options;
 
-        const filesRef = yield* Ref.make<Array<DiffFile>>([]);
+        const snapshotRef = yield* Ref.make<ReviewSnapshot | null>(null);
         const lastHashRef = yield* Ref.make("");
         const pubsub = yield* PubSub.unbounded<SseEvent>();
 
@@ -54,10 +64,18 @@ export class Watcher extends Context.Service<Watcher, {
           const state = yield* git.collectState(root);
           const lastHash = yield* Ref.get(lastHashRef);
           if (state.hash === lastHash) return false;
-          yield* Ref.set(lastHashRef, state.hash);
           const untracked = yield* git.readUntrackedFiles(root, state.untrackedPaths);
           const files = [...parseGitDiff(state.diffText), ...untracked];
-          yield* Ref.set(filesRef, files);
+          // Never associate files with a different HEAD than the one collected.
+          const meta = yield* git.getMeta(root, files);
+          if (meta.head !== state.head) {
+            return yield* Effect.fail(new GitError({
+              args: ["diff"], cause: new Error("HEAD changed while reading the diff; please retry")
+            }));
+          }
+          const reviewId = yield* store.currentReview(state.head);
+          yield* Ref.set(snapshotRef, { files, reviewId, head: state.head });
+          yield* Ref.set(lastHashRef, state.hash);
           const event: SseEvent = { type: "diff", at: Date.now() };
           yield* PubSub.publish(pubsub, event);
           return true;
@@ -79,8 +97,18 @@ export class Watcher extends Context.Service<Watcher, {
         );
         yield* Effect.forkScoped(pollLoop);
 
+        const snapshot = Effect.gen(function*() {
+          let current = yield* Ref.get(snapshotRef);
+          while (current === null) {
+            yield* refreshLocked.withPermits(1)(refresh());
+            current = yield* Ref.get(snapshotRef);
+          }
+          return current;
+        });
+
         return Watcher.of({
-          files: Effect.map(Ref.get(filesRef), (files) => [...files]),
+          files: Effect.map(Ref.get(snapshotRef), (snapshot) => [...(snapshot?.files ?? [])]),
+          snapshot,
           // Expose the semaphore-guarded refresh so explicit callers (e.g. the
           // cli's startup refresh) serialize with the poll loop too.
           refresh: () => refreshLocked.withPermits(1)(refresh()),

@@ -120,6 +120,8 @@ describe("CommentStore (Effect service)", () => {
         // Reproduce the previous schema, which had no context column.
         const db = new DatabaseSync(dbPath);
         db.exec("ALTER TABLE comments DROP COLUMN context");
+        db.exec("ALTER TABLE comments DROP COLUMN review_id");
+        db.exec("DROP TABLE current_review");
         db.close();
 
         const context = {
@@ -130,6 +132,7 @@ describe("CommentStore (Effect service)", () => {
         yield* Effect.gen(function*() {
           const store = yield* CommentStore;
           expect(yield* store.get(created.id)).toEqual(created);
+          expect((yield* store.get(created.id))!.reviewId).toBeUndefined();
           yield* store.update(created.id, { context });
           yield* store.update(created.id, { line: 30, status: "addressed" });
         }).pipe(Effect.provide(CommentStore.layer(dbPath)));
@@ -137,6 +140,33 @@ describe("CommentStore (Effect service)", () => {
         yield* Effect.gen(function*() {
           const store = yield* CommentStore;
           expect(yield* store.get(created.id)).toMatchObject({ line: 30, status: "addressed", context });
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }));
+
+  it.effect("persists review identity and starts a new review for every observed HEAD change", () =>
+    Effect.gen(function*() {
+      const dir = mkdtempSync(join(tmpdir(), "diffreview-reviews-"));
+      try {
+        const dbPath = join(dir, "test.sqlite");
+        const first = yield* CommentStore.use((store) => store.currentReview("head-a")).pipe(
+          Effect.provide(CommentStore.layer(dbPath))
+        );
+        yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          expect(yield* store.currentReview("head-a")).toBe(first);
+          const comment = yield* store.create({ ...baseInput, reviewId: first });
+          const next = yield* store.currentReview("head-b");
+          expect(next).not.toBe(first);
+          expect((yield* store.get(comment.id))!.reviewId).toBe(first);
+          const returned = yield* store.currentReview("head-a");
+          expect(returned).not.toBe(first);
+          expect(returned).not.toBe(next);
+          const unborn = yield* store.currentReview("");
+          expect(yield* store.currentReview("")).toBe(unborn);
+          expect(yield* store.currentReview("first-commit")).not.toBe(unborn);
         }).pipe(Effect.provide(CommentStore.layer(dbPath)));
       } finally {
         rmSync(dir, { recursive: true, force: true });

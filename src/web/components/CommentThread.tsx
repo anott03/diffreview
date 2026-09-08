@@ -1,5 +1,5 @@
 import { Badge, Button } from "@cloudflare/kumo";
-import { ArrowCounterClockwise, Trash } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowRight, Check, Trash } from "@phosphor-icons/react";
 import type { Comment } from "../../shared/types";
 import { CommentContext } from "./CommentContext";
 
@@ -15,37 +15,67 @@ function timeAgo(timestamp: number): string {
 
 interface CommentThreadProps {
   comment: Comment;
+  onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
   showContext?: boolean;
+  onCarryForward?: (id: string) => void;
 }
 
-export function CommentThread({ comment, onReopen, onDelete, showContext = false }: CommentThreadProps) {
+export function CommentThread({ comment, onResolve, onReopen, onDelete, onCarryForward, showContext = false }: CommentThreadProps) {
   return (
-    <div className="border-l-2 border-kumo-brand bg-kumo-elevated px-4 py-2.5">
+    <div className="border-l-2 border-kumo-brand bg-kumo-elevated px-4 py-2.5 font-sans">
       <div className="mb-1 flex items-center gap-2">
         <Badge variant="secondary">you</Badge>
         {comment.status === "addressed" && <Badge variant="success">addressed</Badge>}
-        {comment.outdated && <Badge variant="warning">outside current diff</Badge>}
+        {comment.historical ? (
+          <Badge variant="secondary">{comment.reviewId ? "previous review" : "no review"}</Badge>
+        ) : comment.outdated && <Badge variant="warning">outside current diff</Badge>}
         <span className="text-xs text-kumo-subtle">
           line {comment.line} · {timeAgo(comment.createdAt)}
         </span>
         <span className="flex-1" />
+        {comment.historical && onCarryForward && (
+          <Button
+            size="xs"
+            variant="ghost"
+            icon={<ArrowRight size={12} />}
+            className="leading-none"
+            onClick={() => onCarryForward(comment.id)}
+            title="Carry forward to the current review"
+          >
+            <span>Carry forward</span>
+          </Button>
+        )}
+        {comment.status === "open" && (
+          <Button
+            size="xs"
+            variant="ghost"
+            icon={<Check size={12} />}
+            className="leading-none"
+            onClick={() => onResolve(comment.id)}
+            title="Resolve this comment"
+          >
+            <span>Resolve</span>
+          </Button>
+        )}
         {comment.status === "addressed" && (
           <Button
             size="xs"
             variant="ghost"
             icon={<ArrowCounterClockwise size={12} />}
+            className="leading-none"
             onClick={() => onReopen(comment.id)}
             title="Reopen this comment"
           >
-            Reopen
+            <span>Reopen</span>
           </Button>
         )}
         <Button
           size="xs"
           variant="ghost"
           shape="square"
+          className="size-5"
           icon={<Trash size={12} />}
           onClick={() => onDelete(comment.id)}
           aria-label="Delete comment"

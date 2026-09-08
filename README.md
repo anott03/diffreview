@@ -12,6 +12,10 @@ comments that agents can retrieve and mark as addressed via MCP.
 - **Comments after commits** — the Comments view lists open, addressed, or all
   comments, even with a clean working tree. New comments retain a code excerpt;
   older comments show matching code from HEAD or the original commented line.
+- **Review-scoped anchoring** — each HEAD change starts a new review. Previous
+  and legacy comments stay in Comments until you explicitly **Carry forward**
+  to the current review. Carry-forward preserves open/addressed status; **Resolve**
+  and **Reopen** change status without changing review membership.
 - **Unified or split diff** — toggle layout instantly.
 - **Agent integration via MCP** — `get_diff_summary`, `get_diff`,
   `list_review_comments`, `mark_comment_addressed`.

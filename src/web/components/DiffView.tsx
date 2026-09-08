@@ -24,6 +24,7 @@ interface DiffViewProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onSubmitComment: (input: CreateCommentRequest) => Promise<void>;
+  onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -35,6 +36,7 @@ export function DiffView({
   collapsed,
   onToggleCollapse,
   onSubmitComment,
+  onResolve,
   onReopen,
   onDelete,
 }: DiffViewProps) {
@@ -73,6 +75,7 @@ export function DiffView({
     onStartComment: setEditing,
     onCancelComment: () => setEditing(null),
     onSubmitComment: submit,
+    onResolve,
     onReopen,
     onDelete,
   };
@@ -120,6 +123,7 @@ export function DiffView({
                   key={comment.id}
                   comment={comment}
                   showContext
+                  onResolve={onResolve}
                   onReopen={onReopen}
                   onDelete={onDelete}
                 />

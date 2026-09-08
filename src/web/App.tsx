@@ -18,6 +18,7 @@ export function App() {
   const toasts = useKumoToastManager();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [files, setFiles] = useState<DiffFile[] | null>(null);
+  const [reviewId, setReviewId] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [layout, setLayout] = useState<Layout>("unified");
   const [view, setView] = useState<"changes" | "comments">("changes");
@@ -46,6 +47,7 @@ export function App() {
       const [meta, diff] = await Promise.all([api.getMeta(), api.getDiff()]);
       setMeta(meta);
       setFiles(diff.files);
+      setReviewId(diff.reviewId);
     } catch {
       // Transient failure (server restarting) — the next SSE event retries.
     }
@@ -73,8 +75,7 @@ export function App() {
     onComments: () => void refreshComments(),
   });
 
-  // Toast when an agent marks comments addressed (open → addressed transition
-  // that didn't originate from this UI).
+  // Toast on open → addressed transitions from either the UI or an agent.
   const prevComments = useRef<Comment[]>([]);
   useEffect(() => {
     const prev = prevComments.current;
@@ -84,7 +85,7 @@ export function App() {
     if (newlyAddressed.length > 0) {
       toasts.add({
         variant: "success",
-        title: `${newlyAddressed.length} comment${newlyAddressed.length === 1 ? "" : "s"} marked addressed by agent`,
+        title: `${newlyAddressed.length} comment${newlyAddressed.length === 1 ? "" : "s"} marked addressed`,
       });
     }
     prevComments.current = comments;
@@ -92,12 +93,29 @@ export function App() {
 
   const submitComment = async (input: CreateCommentRequest) => {
     try {
-      await api.createComment(input);
+      await api.createComment({ ...input, ...(reviewId ? { reviewId } : {}) });
       await refreshComments();
     } catch (err) {
       toasts.add({ variant: "error", title: "Failed to save comment", description: String(err) });
       throw err;
     }
+  };
+
+  const resolveComment = (id: string) => {
+    api
+      .updateComment(id, { status: "addressed" })
+      .then(refreshComments)
+      .catch((err) => toasts.add({ variant: "error", title: "Failed to resolve", description: String(err) }));
+  };
+
+  const carryForwardComment = (id: string) => {
+    api
+      .updateComment(id, { carryForward: true })
+      .then(async () => {
+        await Promise.all([refreshDiff(), refreshComments()]);
+        toasts.add({ variant: "success", title: "Comment carried forward to the current review" });
+      })
+      .catch((err) => toasts.add({ variant: "error", title: "Failed to carry forward", description: String(err) }));
   };
 
   const reopenComment = (id: string) => {
@@ -140,6 +158,7 @@ export function App() {
   }, [selectedPath, view]);
 
   const openCount = comments.filter((c) => c.status === "open").length;
+  const reviewComments = comments.filter((c) => c.reviewId === reviewId && !c.historical);
 
   if (files === null) {
     return (
@@ -204,6 +223,8 @@ export function App() {
             comments={comments}
             status={commentStatus}
             onStatusChange={setCommentStatus}
+            onCarryForward={carryForwardComment}
+            onResolve={resolveComment}
             onReopen={reopenComment}
             onDelete={deleteComment}
           />
@@ -230,7 +251,7 @@ export function App() {
           >
             <FileList
               files={files}
-              comments={comments}
+              comments={reviewComments}
               selectedPath={selectedPath}
               onSelect={selectFile}
             />
@@ -239,7 +260,7 @@ export function App() {
                 const path = diffFilePath(file);
                 return (
                   <div
-                    key={path}
+                      key={`${reviewId}:${path}`}
                     id={path}
                     ref={(el) => {
                       fileRefs.current[path] = el;
@@ -248,10 +269,11 @@ export function App() {
                     <DiffView
                       file={file}
                       layout={layout}
-                      comments={comments.filter((c) => c.file === path)}
+                      comments={reviewComments.filter((c) => c.file === path)}
                       collapsed={collapsedPaths.has(path)}
                       onToggleCollapse={() => toggleCollapsed(path)}
                       onSubmitComment={submitComment}
+                      onResolve={resolveComment}
                       onReopen={reopenComment}
                       onDelete={deleteComment}
                     />

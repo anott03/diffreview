@@ -51,18 +51,21 @@ server.registerTool(
         apiGet<ListCommentsResponse>(conn.client, "/api/comments?status=open"),
       ]);
       const openByFile = new Map<string, number>();
-      for (const c of comments.comments) {
+      const currentComments = comments.comments.filter((c) => c.reviewId === diff.reviewId && !c.historical);
+      for (const c of currentComments) {
         openByFile.set(c.file, (openByFile.get(c.file) ?? 0) + 1);
       }
       return ok({
         repoRoot: meta.repoRoot,
         branch: meta.branch,
         head: meta.head,
+        reviewId: diff.reviewId,
         totals: {
           files: meta.files,
           additions: meta.additions,
           deletions: meta.deletions,
           openComments: comments.comments.length,
+          currentReviewOpenComments: currentComments.length,
         },
         files: diff.files.map((f) => ({
           path: diffFilePath(f),
@@ -124,7 +127,9 @@ server.registerTool(
       "(your work queue). Each comment includes the file, side (old/new), line number, the " +
       "commented line's text, available code context, and the human's note. Comments with outdated=true " +
       "refer to code outside the current diff (changed or committed). Context is saved code or a " +
-      "matching excerpt from current HEAD, as indicated by context.source.",
+      "matching excerpt from current HEAD, as indicated by context.source. historical=true means " +
+      "the comment belongs to a previous review or has no review; it must not be treated as anchored " +
+      "to current changes. Users can explicitly carry these comments forward in the UI.",
     inputSchema: {
       status: z
         .enum(["open", "addressed", "all"])
@@ -143,6 +148,8 @@ server.registerTool(
       return ok(
         res.comments.map((c) => ({
           id: c.id,
+          reviewId: c.reviewId ?? null,
+          historical: c.historical ?? true,
           file: c.file,
           side: c.side,
           line: c.line,

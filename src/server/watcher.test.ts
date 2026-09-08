@@ -7,6 +7,7 @@ import { Effect, Fiber, Layer, Option, Stream, type Scope } from "effect";
 import { afterAll, describe, expect, it } from "@effect/vitest";
 import { Git } from "./git";
 import { Watcher } from "./watcher";
+import { CommentStore, type StoreError } from "./store";
 
 const execFileAsync = promisify(execFile);
 const git = (cwd: string, args: string[]) => execFileAsync("git", args, { cwd });
@@ -30,12 +31,14 @@ afterAll(async () => {
 // Long interval: the poll loop must not interfere with tests (it sleeps
 // before its first refresh, so nothing automatic happens during a test).
 const watcherLayer = (root: string) =>
-  Watcher.layer({ root, intervalMs: 60_000 }).pipe(Layer.provide(Git.layer));
+  Watcher.layer({ root, intervalMs: 60_000 }).pipe(Layer.provide([
+    Git.layer, CommentStore.layer(":memory:")
+  ]));
 
 // Real time + real fs/git — TestClock's virtual sleep would hang these.
 const withRepo = <A, E>(
   f: (dir: string) => Effect.Effect<A, E, Watcher | Scope.Scope>
-): Effect.Effect<A, E, Scope.Scope> =>
+): Effect.Effect<A, E | StoreError, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.promise(makeRepo),
     (dir) => Effect.promise(() => rm(dir, { recursive: true, force: true }))
@@ -53,6 +56,7 @@ describe("Watcher (Effect service)", () => {
         // still transitions from "no state" to "state".
         expect(yield* w.refresh()).toBe(true);
         expect(yield* w.files).toEqual([]);
+        const initialReview = (yield* w.snapshot).reviewId;
 
         // Uncommitted change → parsed diff appears.
         yield* Effect.promise(() => writeFile(join(dir, "a.txt"), "one\nTWO\nthree\n"));
@@ -61,9 +65,15 @@ describe("Watcher (Effect service)", () => {
         expect(files).toHaveLength(1);
         expect(files[0]!.newPath).toBe("a.txt");
         expect(files[0]!.additions).toBe(1);
+        expect((yield* w.snapshot).reviewId).toBe(initialReview);
 
         // Same state → no re-parse, no event.
         expect(yield* w.refresh()).toBe(false);
+        // An unrelated/empty commit still ends this review, even if the diff is identical.
+        yield* Effect.promise(() => git(dir, ["-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "--quiet", "--allow-empty", "-m", "boundary"]));
+        expect(yield* w.refresh()).toBe(true);
+        expect((yield* w.snapshot).reviewId).not.toBe(initialReview);
+        expect(yield* w.files).toEqual(files);
       })
     ));
 

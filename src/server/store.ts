@@ -30,10 +30,16 @@ CREATE TABLE IF NOT EXISTS comments (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
+CREATE TABLE IF NOT EXISTS current_review (
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  id TEXT NOT NULL,
+  head TEXT NOT NULL
+);
 `;
 
 interface CommentRow {
   id: string;
+  review_id: string | null;
   file: string;
   side: string;
   line: number;
@@ -50,6 +56,7 @@ interface CommentRow {
 function rowToComment(row: CommentRow): Comment {
   return {
     id: row.id,
+    ...(row.review_id !== null ? { reviewId: row.review_id } : {}),
     file: row.file,
     side: row.side as CommentSide,
     line: row.line,
@@ -65,6 +72,7 @@ function rowToComment(row: CommentRow): Comment {
 }
 
 export interface CreateCommentInput {
+  reviewId?: string;
   file: string;
   side: CommentSide;
   line: number;
@@ -75,6 +83,7 @@ export interface CreateCommentInput {
 }
 
 export interface UpdateCommentInput {
+  reviewId?: string;
   context?: CommentContext;
   status?: CommentStatus;
   note?: string;
@@ -100,6 +109,9 @@ function openDatabaseSync(dbPath: string): DatabaseSync {
   const columns = db.prepare("PRAGMA table_info(comments)").all();
   if (!columns.some((column) => column.name === "context")) {
     db.exec("ALTER TABLE comments ADD COLUMN context TEXT");
+  }
+  if (!columns.some((column) => column.name === "review_id")) {
+    db.exec("ALTER TABLE comments ADD COLUMN review_id TEXT");
   }
   return db;
 }
@@ -133,10 +145,10 @@ function insertComment(db: DatabaseSync, input: CreateCommentInput): Comment {
   const now = Date.now();
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO comments (id, file, side, line, line_text, body, author, status, note, created_at, updated_at, context)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, ?, ?, ?)`,
+    `INSERT INTO comments (id, file, side, line, line_text, body, author, status, note, created_at, updated_at, context, review_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, ?, ?, ?, ?)`,
   ).run(id, input.file, input.side, input.line, input.lineText, input.body, input.author, now, now,
-    input.context ? JSON.stringify(input.context) : null);
+    input.context ? JSON.stringify(input.context) : null, input.reviewId ?? null);
   return getComment(db, id)!;
 }
 
@@ -146,6 +158,10 @@ function updateComment(db: DatabaseSync, id: string, patch: UpdateCommentInput):
 
   const sets: string[] = [];
   const params: (string | number)[] = [];
+  if (patch.reviewId !== undefined) {
+    sets.push("review_id = ?");
+    params.push(patch.reviewId);
+  }
   if (patch.context !== undefined) {
     sets.push("context = ?");
     params.push(JSON.stringify(patch.context));
@@ -179,16 +195,26 @@ function removeComment(db: DatabaseSync, id: string): boolean {
   return Number(result.changes) > 0;
 }
 
+/** A HEAD transition ends the previous review, even when returning to an older HEAD. */
+function currentReview(db: DatabaseSync, head: string): string {
+  const current = db.prepare("SELECT id, head FROM current_review WHERE singleton = 1").get();
+  if (current?.head === head) return current.id as string;
+  const id = randomUUID();
+  db.prepare("INSERT OR REPLACE INTO current_review (singleton, id, head) VALUES (1, ?, ?)").run(id, head);
+  return id;
+}
+
 // ---------------------------------------------------------------------------
 // Effect service
 // ---------------------------------------------------------------------------
 
 export class StoreError extends Schema.TaggedError<StoreError>()("StoreError", {
-  op: Schema.Literals(["open", "list", "get", "create", "update", "remove"]),
+  op: Schema.Literals(["open", "list", "get", "create", "update", "remove", "review"]),
   cause: Schema.Defect()
 }) {}
 
 export class CommentStore extends Context.Service<CommentStore, {
+  currentReview(head: string): Effect.Effect<string, StoreError>;
   list(filter?: CommentFilter): Effect.Effect<Array<Comment>, StoreError>;
   get(id: string): Effect.Effect<Comment | null, StoreError>;
   create(input: CreateCommentInput): Effect.Effect<Comment, StoreError>;
@@ -221,6 +247,10 @@ export class CommentStore extends Context.Service<CommentStore, {
         );
 
         return CommentStore.of({
+          currentReview: (head) => Effect.try({
+            try: () => currentReview(db, head),
+            catch: (cause) => new StoreError({ op: "review", cause })
+          }),
           list: (filter = {}) =>
             Effect.try({
               try: () => listComments(db, filter),

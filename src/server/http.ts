@@ -22,7 +22,7 @@ import { resolveAnchors } from "./diff";
 import { contextFromDiff, contextFromHead } from "./comment-context";
 import * as S from "./api-schemas";
 import { Api, BadRequestError, InternalError, NotFoundError } from "./api";
-import { CommentStore } from "./store";
+import { CommentStore, type UpdateCommentInput } from "./store";
 import { Git } from "./git";
 import { Watcher } from "./watcher";
 import { Session } from "./session";
@@ -76,7 +76,10 @@ export const ApiHandlers = HttpApiBuilder.group(
         const files = yield* watcher.files;
         return yield* Effect.catch(git.getMeta(config.repoRoot, files), toError);
       }))
-    .handle("diff", () => Effect.map(watcher.files, (files) => ({ files })))
+    .handle("diff", () => watcher.snapshot.pipe(
+      Effect.map(({ files, reviewId }) => ({ files, reviewId })),
+      Effect.catch(toError)
+    ))
     .handle("listComments", ({ query }) =>
       Effect.gen(function*() {
         const filter: { status?: CommentStatus; file?: string } = {};
@@ -91,8 +94,8 @@ export const ApiHandlers = HttpApiBuilder.group(
         if (query.file) filter.file = query.file;
 
         const stored = yield* Effect.catch(store.list(filter), toError);
-        const files = yield* watcher.files;
-        const resolved = resolveAnchors(files, stored);
+        const { files, reviewId, head } = yield* Effect.catch(watcher.snapshot, toError);
+        const resolved = resolveAnchors(files, stored, reviewId);
         const headFiles = new Map<string, string | null>();
 
         // Persist re-anchored line numbers so anchors converge over time.
@@ -103,13 +106,13 @@ export const ApiHandlers = HttpApiBuilder.group(
             yield* Effect.catch(store.update(o.id, { line: r.line }), toError);
           }
           if (!r.context) {
-            const snapshot = contextFromDiff(files, r);
+            const snapshot = r.historical ? undefined : contextFromDiff(files, r);
             if (snapshot) {
               r.context = snapshot;
               yield* Effect.catch(store.update(o.id, { context: snapshot }), toError);
             } else {
               if (!headFiles.has(r.file)) {
-                const text = yield* git.run(config.repoRoot, ["show", `HEAD:${r.file}`]).pipe(
+                const text = yield* git.run(config.repoRoot, ["show", `${head || "HEAD"}:${r.file}`]).pipe(
                   Effect.catch(() => Effect.succeed(null))
                 );
                 headFiles.set(r.file, text);
@@ -126,17 +129,38 @@ export const ApiHandlers = HttpApiBuilder.group(
     .handleRaw("createComment", () =>
       Effect.gen(function*() {
         const input = yield* parseBody(S.CreateCommentRequestSchema);
-        const context = contextFromDiff(yield* watcher.files, input);
+        yield* Effect.catch(watcher.refresh(), toError);
+        const { files, reviewId } = yield* Effect.catch(watcher.snapshot, toError);
+        if (input.reviewId !== undefined && input.reviewId !== reviewId) {
+          return yield* Effect.fail(new BadRequestError({
+            error: "This review ended after HEAD changed. Refresh the diff before adding a comment."
+          }));
+        }
+        const context = contextFromDiff(files, input);
         const comment = yield* Effect.catch(store.create({
-          ...input, author: "user", ...(context ? { context } : {})
+          ...input, reviewId, author: "user", ...(context ? { context } : {})
         }), toError);
         yield* watcher.publish({ type: "comments", at: Date.now() });
         return comment;
       }))
     .handleRaw("updateComment", ({ params }) =>
       Effect.gen(function*() {
-        const patch = yield* parseBody(S.UpdateCommentRequestSchema);
-        const updated = yield* Effect.catch(store.update(params.id, patch), toError);
+        const { carryForward, ...patch } = yield* parseBody(S.UpdateCommentRequestSchema);
+        const update: UpdateCommentInput = { ...patch };
+        if (carryForward) {
+          const existing = yield* Effect.catch(store.get(params.id), toError);
+          if (!existing) return yield* Effect.fail(new NotFoundError({ error: "comment not found" }));
+          yield* Effect.catch(watcher.refresh(), toError);
+          const { files, reviewId } = yield* Effect.catch(watcher.snapshot, toError);
+          update.reviewId = reviewId;
+          const [resolved] = resolveAnchors(files, [{ ...existing, reviewId }], reviewId);
+          if (!resolved!.outdated) {
+            update.line = resolved!.line;
+            const context = contextFromDiff(files, resolved!);
+            if (context) update.context = context;
+          }
+        }
+        const updated = yield* Effect.catch(store.update(params.id, update), toError);
         if (updated === null) {
           return yield* Effect.fail(new NotFoundError({ error: "comment not found" }));
         }
@@ -242,16 +266,10 @@ export interface ServerOptions {
  * program can drive them (initial refresh, session bookkeeping).
  */
 export const serverLayer = (options: ServerOptions) => {
-  // Note: Layer.merge (not mergeAll — that one's for no-output layers and
-  // collapses service outputs). Watcher gets Git provided privately, so the
-  // merged layer's requirements stay empty.
-  const services = Git.layer.pipe(
-    Layer.merge(CommentStore.layer(options.dbPath)),
-    Layer.merge(
-      Watcher.layer({ root: options.repoRoot, intervalMs: options.intervalMs }).pipe(
-        Layer.provide(Git.layer)
-      )
-    ),
+  // Share the same single-writer store between the watcher and HTTP handlers.
+  const core = Git.layer.pipe(Layer.merge(CommentStore.layer(options.dbPath)));
+  const services = Watcher.layer({ root: options.repoRoot, intervalMs: options.intervalMs }).pipe(
+    Layer.provideMerge(core),
     Layer.merge(Session.layer),
     Layer.merge(
       Layer.succeed(ServerConfig, {

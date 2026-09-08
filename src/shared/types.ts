@@ -68,6 +68,10 @@ export interface CommentContext {
 
 export interface Comment {
   id: string;
+  /** Review membership. Absent for legacy comments until explicitly carried forward. */
+  reviewId?: string;
+  /** Computed at read time: this comment does not belong to the current review. */
+  historical?: boolean;
   /** Canonical file path the comment is anchored to (see diffFilePath). */
   file: string;
   /** Which side of the diff the anchor line is on. */
@@ -88,7 +92,7 @@ export interface Comment {
   note?: string;
   /**
    * Computed at read time (never stored): true when the anchor line can no
-   * longer be located in the current diff.
+   * longer be located in the current review's diff (including historical comments).
    */
   outdated?: boolean;
   createdAt: number;
@@ -114,6 +118,7 @@ export interface Meta {
 
 export interface GetDiffResponse {
   files: DiffFile[];
+  reviewId: string;
 }
 
 export interface ListCommentsResponse {
@@ -121,6 +126,8 @@ export interface ListCommentsResponse {
 }
 
 export interface CreateCommentRequest {
+  /** Optional expected review, used to reject submissions from a stale diff. */
+  reviewId?: string;
   file: string;
   side: CommentSide;
   line: number;
@@ -132,6 +139,8 @@ export interface UpdateCommentRequest {
   status?: CommentStatus;
   note?: string;
   body?: string;
+  /** Explicitly move this comment into the current review, preserving its status. */
+  carryForward?: true;
 }
 
 export interface ApiErrorResponse {

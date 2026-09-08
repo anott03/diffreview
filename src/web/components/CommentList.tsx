@@ -6,11 +6,13 @@ interface CommentListProps {
   comments: Comment[];
   status: CommentStatus | "all";
   onStatusChange: (status: CommentStatus | "all") => void;
+  onCarryForward: (id: string) => void;
+  onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function CommentList({ comments, status, onStatusChange, onReopen, onDelete }: CommentListProps) {
+export function CommentList({ comments, status, onStatusChange, onCarryForward, onResolve, onReopen, onDelete }: CommentListProps) {
   const groups = new Map<string, Comment[]>();
   for (const comment of comments) {
     if (status !== "all" && comment.status !== status) continue;
@@ -44,7 +46,7 @@ export function CommentList({ comments, status, onStatusChange, onReopen, onDele
             <h2 className="border-y border-kumo-line bg-kumo-base px-4 py-2 font-mono text-sm break-all">{file}</h2>
             <div className="flex flex-col gap-2 px-4 py-3">
               {threads.map((comment) => (
-                <CommentThread key={comment.id} comment={comment} showContext onReopen={onReopen} onDelete={onDelete} />
+                <CommentThread key={comment.id} comment={comment} showContext onCarryForward={onCarryForward} onResolve={onResolve} onReopen={onReopen} onDelete={onDelete} />
               ))}
             </div>
           </section>

@@ -171,6 +171,14 @@ describe("UpdateCommentRequestSchema", () => {
     ).toEqual({ status: "addressed", note: "n", body: "b" });
   });
 
+  it("accepts explicit carry-forward and rejects ambiguous values", () => {
+    expect(Schema.decodeUnknownSync(S.UpdateCommentRequestSchema)({ carryForward: true }))
+      .toEqual({ carryForward: true });
+    for (const carryForward of [false, "true", "review-id"]) {
+      expect(() => Schema.decodeUnknownSync(S.UpdateCommentRequestSchema)({ carryForward })).toThrow();
+    }
+  });
+
   it("rejects empty patches (the zod 'empty patch' refinement)", () => {
     expect(() => Schema.decodeUnknownSync(S.UpdateCommentRequestSchema)({})).toThrow();
   });
@@ -217,7 +225,7 @@ describe("response schemas", () => {
       additions: 1,
       deletions: 0
     };
-    const res: GetDiffResponse = { files: [file] };
+    const res: GetDiffResponse = { files: [file], reviewId: "review-1" };
     expect(Schema.decodeUnknownSync(S.GetDiffResponseSchema)(res)).toEqual(res);
   });
 

@@ -41,12 +41,11 @@ async function makeRepo(): Promise<string> {
 beforeAll(async () => {
   repoDir = await makeRepo();
   const routes = Layer.mergeAll(ApiRoutes, apiNotFoundRoutes, webRoutes(null));
+  const core = Git.layer.pipe(Layer.merge(CommentStore.layer(":memory:")));
   const app = routes.pipe(
     Layer.provide([
       HttpServer.layerServices,
-      Git.layer,
-      CommentStore.layer(":memory:"),
-      Watcher.layer({ root: repoDir, intervalMs: 25 }).pipe(Layer.provide(Git.layer)),
+      Watcher.layer({ root: repoDir, intervalMs: 25 }).pipe(Layer.provideMerge(core)),
       Layer.succeed(ServerConfig, {
         repoRoot: repoDir,
         port: 0,
@@ -276,11 +275,91 @@ describe("Effect HTTP server (wire contract)", () => {
 
     await git(repoDir, ["rm", "a.txt"]);
     await git(repoDir, ["-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "--quiet", "-m", "remove file"]);
+    await waitFor(
+      async () => (await handler(new Request("http://localhost/api/diff"))).json(),
+      (diff: any) => diff.reviewId !== clean.reviewId
+    );
     const removed = await (await handler(new Request("http://localhost/api/comments?status=open"))).json();
     expect(removed.comments.find((c: any) => c.id === old.id).context).toEqual(old.context);
     expect(removed.comments.find((c: any) => c.id === legacy.id)).toMatchObject({
       status: "open", lineText: "TWO"
     });
     expect(removed.comments.find((c: any) => c.id === legacy.id).context).toBeUndefined();
+  });
+
+  it("isolates recurring code by review and carries comments forward only on explicit request", async () => {
+    const diff = async () => (await handler(new Request("http://localhost/api/diff"))).json();
+    const list = async () => (await handler(new Request("http://localhost/api/comments"))).json();
+    const patch = async (id: string, body: object) => {
+      const res = await handler(new Request(`http://localhost/api/comments/${id}`, {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+      }));
+      expect(res.status).toBe(200);
+      return res.json();
+    };
+    await writeFile(join(repoDir, "review.txt"), "start\nrepeated\nend\n");
+    const first = await waitFor(diff, (d: any) => d.files.some((f: any) => f.newPath === "review.txt"));
+    const create = async (line: number, lineText: string) => {
+      const res = await handler(new Request("http://localhost/api/comments", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file: "review.txt", side: "new", line, lineText, body: "Feedback" })
+      }));
+      expect(res.status).toBe(201);
+      return res.json();
+    };
+    const open = await create(2, "repeated");
+    const addressed = await create(2, "repeated");
+    const missing = await create(1, "start");
+    await patch(addressed.id, { status: "addressed", note: "Already handled" });
+    expect(open.reviewId).toBe(first.reviewId);
+
+    // Within one review, moved code still re-anchors and keeps its original excerpt.
+    await writeFile(join(repoDir, "review.txt"), "prefix\nstart\nrepeated\nend\n");
+    const shifted = await waitFor(list, (l: any) => l.comments.find((c: any) => c.id === open.id)?.line === 3);
+    expect(shifted.comments.find((c: any) => c.id === open.id)).toMatchObject({
+      historical: false, outdated: false, line: 3, context: open.context
+    });
+
+    await git(repoDir, ["add", "."]);
+    await git(repoDir, ["-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "--quiet", "-m", "end review"]);
+    const next = await waitFor(diff, (d: any) => d.reviewId !== first.reviewId);
+    expect(next.reviewId).not.toBe(first.reviewId);
+    const stale = await handler(new Request("http://localhost/api/comments", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        reviewId: first.reviewId, file: "review.txt", side: "new", line: 3,
+        lineText: "repeated", body: "Submitted from a stale editor"
+      })
+    }));
+    expect(stale.status).toBe(400);
+    expect((await stale.json()).error).toContain("review ended");
+    await writeFile(join(repoDir, "review.txt"), "prefix\nreplacement\nextra\nrepeated\nend\n");
+    await waitFor(diff, (d: any) => d.files.some((f: any) => f.newPath === "review.txt"));
+
+    for (const original of [open, addressed]) {
+      const comment = (await list()).comments.find((c: any) => c.id === original.id);
+      expect(comment).toMatchObject({
+        reviewId: first.reviewId, historical: true, outdated: true, line: 3, context: original.context
+      });
+    }
+    // Reopening a historical comment changes status only, not review membership.
+    await patch(addressed.id, { status: "open" });
+    expect((await list()).comments.find((c: any) => c.id === addressed.id).historical).toBe(true);
+    await patch(addressed.id, { status: "addressed" });
+
+    const carried = await patch(addressed.id, { carryForward: true });
+    expect(carried).toMatchObject({
+      reviewId: next.reviewId, status: "addressed", note: "Already handled", line: 4,
+      context: { source: "snapshot", line: 4 }
+    });
+    const after = (await list()).comments;
+    expect(after.find((c: any) => c.id === addressed.id)).toMatchObject({ historical: false, outdated: false });
+    expect(after.find((c: any) => c.id === open.id)).toMatchObject({ historical: true, status: "open", line: 3 });
+
+    // Carry-forward is also allowed when the original anchor no longer exists.
+    await patch(missing.id, { carryForward: true });
+    expect((await list()).comments.find((c: any) => c.id === missing.id)).toMatchObject({
+      reviewId: next.reviewId, historical: false, outdated: true, context: missing.context
+    });
   });
 });

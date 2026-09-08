@@ -50,7 +50,9 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
     (`Layer.effect` / `Layer.acquireRelease` for scoped resources).
   - `Layer.mergeAll` collapses service outputs — compose services with
     `Layer.merge`; `Layer.provide([array])` does not resolve requirements
-    between array members (pre-compose, e.g. `Watcher.layer.pipe(Layer.provide(Git.layer))`).
+    between array members. Watcher requires Git and CommentStore; use
+    `Layer.provideMerge(core)` with a shared core layer so the watcher and
+    HTTP handlers use the same single-writer store.
   - Handlers that must render their own errors use `handleRaw`; declared
     HttpApi payloads render an empty 400 on decode failure.
   - Error payloads are TaggedError classes — same-shaped plain structs are
@@ -75,7 +77,7 @@ src/
     git.ts          # Git service (+ standalone getRepoRoot for cli/mcp)
     diff.ts         # parse-diff wrapper + untracked synthesis + anchor resolution
     store.ts        # CommentStore service (node:sqlite via sync core fns)
-    watcher.ts      # Watcher service (poll fiber + change PubSub)
+    watcher.ts      # Watcher service (poll fiber + change PubSub + review snapshots)
     session.ts      # Session service (+ free fns used by the MCP client)
     config.ts       # ServerConfig service
     paths.ts        # ~/.local/share/diff-review paths
@@ -102,6 +104,18 @@ src/
 ### Comment anchoring rule
 
 - Comments are anchored by `(file, side, line, lineText)`.
+- Anchoring is scoped by `reviewId`. The store's singleton `current_review`
+  persists `(id, head)`; every observed HEAD change creates a fresh ID, including
+  when returning to a previously seen HEAD. Watcher exposes files, HEAD, and
+  review ID as one snapshot. An unborn HEAD uses the empty string.
+- Legacy comments have a NULL `review_id` and stay unscoped. Missing/different
+  review IDs produce `historical: true` and are excluded from Changes (including
+  sidebar counts), regardless of matching code or open/addressed status.
+- PATCH `{ carryForward: true }` explicitly moves a comment into the current
+  review without changing status. Matching anchors get updated line/context;
+  missing anchors retain their saved code and remain outdated. Reopen/resolve
+  alone never changes review membership. Stale UI submissions include an expected
+  review ID and are rejected when the review has ended.
 - `resolveAnchors()` is the single source of truth. An anchor is valid only if
   the line number and the content both match. If only content matches, the
   stored line number is updated to the new location (`outdated: false`).
