@@ -2,6 +2,7 @@ import { Badge, Button } from "@cloudflare/kumo";
 import { ArrowCounterClockwise, ArrowRight, Check, Trash } from "@phosphor-icons/react";
 import type { Comment } from "../../shared/types";
 import { CommentContext } from "./CommentContext";
+import { Markdown } from "./Markdown";
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
@@ -90,12 +91,13 @@ export function CommentThread({ comment, onResolve, onReopen, onDelete, onCarryF
           title="Delete comment"
         />
       </div>
-      <p className="text-sm whitespace-pre-wrap">{comment.body}</p>
+      <Markdown className="py-1">{comment.body}</Markdown>
       {showContext && <CommentContext comment={comment} />}
       {comment.status === "addressed" && comment.note && (
-        <p className="mt-1.5 border-t border-kumo-line pt-1.5 text-xs text-kumo-subtle">
-          <span className="font-medium text-kumo-success">agent:</span> {comment.note}
-        </p>
+        <div className="mt-1.5 border-t border-kumo-line pt-1.5 text-xs text-kumo-subtle">
+          <span className="font-medium text-kumo-success">agent:</span>{" "}
+          <Markdown className="inline align-baseline text-xs">{comment.note}</Markdown>
+        </div>
       )}
     </div>
   );
