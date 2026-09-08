@@ -1,15 +1,19 @@
 import { diffFilePath, type DiffFile } from "../shared/types";
 
-export type FileTreeNode =
-  | { kind: "file"; name: string; path: string; file: DiffFile }
-  | { kind: "directory"; name: string; path: string; children: FileTreeNode[] };
+export type FileTreeNode<T = DiffFile> =
+  | { kind: "file"; name: string; path: string; file: T }
+  | { kind: "directory"; name: string; path: string; children: FileTreeNode<T>[] };
 
 export function buildFileTree(files: DiffFile[]): FileTreeNode[] {
-  const roots: FileTreeNode[] = [];
-  const directories = new Map<string, Extract<FileTreeNode, { kind: "directory" }>>();
+  return buildPathTree(files, diffFilePath);
+}
+
+export function buildPathTree<T>(files: T[], getPath: (file: T) => string): FileTreeNode<T>[] {
+  const roots: FileTreeNode<T>[] = [];
+  const directories = new Map<string, Extract<FileTreeNode<T>, { kind: "directory" }>>();
 
   for (const file of files) {
-    const path = diffFilePath(file);
+    const path = getPath(file);
     const parts = path.split("/");
     const name = parts.pop()!;
     let children = roots;
@@ -27,7 +31,7 @@ export function buildFileTree(files: DiffFile[]): FileTreeNode[] {
     children.push({ kind: "file", name, path, file });
   }
 
-  const sort = (nodes: FileTreeNode[]) => {
+  const sort = (nodes: FileTreeNode<T>[]) => {
     nodes.sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
       return a.name.localeCompare(b.name, undefined, { numeric: true });

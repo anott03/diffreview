@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DiffFile } from "../shared/types";
-import { buildFileTree } from "./file-tree";
+import { buildFileTree, buildPathTree } from "./file-tree";
 
 const file = (path: string, overrides: Partial<DiffFile> = {}): DiffFile => ({
   oldPath: path,
@@ -14,6 +14,23 @@ const file = (path: string, overrides: Partial<DiffFile> = {}): DiffFile => ({
 });
 
 describe("buildFileTree", () => {
+  it("builds comment-file trees without requiring live diff metadata", () => {
+    const files = [
+      { path: "archived/removed.ts", commentCount: 3 },
+      { path: "README.md", commentCount: 1 },
+      { path: "archived/other.ts", commentCount: 2 },
+    ];
+    expect(buildPathTree(files, (entry) => entry.path)).toEqual([
+      {
+        kind: "directory", name: "archived", path: "archived", children: [
+          { kind: "file", name: "other.ts", path: "archived/other.ts", file: files[2] },
+          { kind: "file", name: "removed.ts", path: "archived/removed.ts", file: files[0] },
+        ],
+      },
+      { kind: "file", name: "README.md", path: "README.md", file: files[1] },
+    ]);
+  });
+
   it("groups shared directories and sorts folders first, then names naturally", () => {
     const inputs = [file("README.md"), file("src/z.ts"), file("src/ui/item10.ts"), file("src/ui/item2.ts"), file("src/a.ts")];
     const tree = buildFileTree(inputs);

@@ -31,6 +31,8 @@ export function App() {
   const [commentSort, setCommentSort] = useState<CommentSort>("newest");
   const [commentGrouping, setCommentGrouping] = useState<CommentGrouping>("list");
   const [collapsedCommentPaths, setCollapsedCommentPaths] = useState<Set<string>>(new Set());
+  const [selectedCommentPath, setSelectedCommentPath] = useState<string | null>(null);
+  const [collapsedCommentDirectories, setCollapsedCommentDirectories] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
   const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
@@ -188,6 +190,25 @@ export function App() {
     });
   }, []);
 
+  const selectCommentFile = useCallback((path: string) => {
+    setSelectedCommentPath(path);
+    setCollapsedCommentPaths((prev) => {
+      if (!prev.has(path)) return prev;
+      const next = new Set(prev);
+      next.delete(path);
+      return next;
+    });
+  }, []);
+
+  const toggleCommentDirectory = useCallback((path: string) => {
+    setCollapsedCommentDirectories((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
   const toggleDirectory = useCallback((path: string) => {
     setCollapsedDirectories((prev) => {
       const next = new Set(prev);
@@ -263,7 +284,18 @@ export function App() {
         />
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <Sidebar.Provider
+        open={sidebarOpen}
+        onOpenChange={setSidebarOpen}
+        resizable
+        defaultWidth={sidebarWidth}
+        minWidth={SIDEBAR_MIN_WIDTH}
+        maxWidth={SIDEBAR_MAX_WIDTH}
+        onWidthChange={setSidebarWidth}
+        contained
+        mobileBreakpoint={0}
+        className="min-h-0 flex-1"
+      >
         {view === "comments" ? (
           <CommentList
             comments={comments}
@@ -279,6 +311,10 @@ export function App() {
             onResolve={resolveComment}
             onReopen={reopenComment}
             onDelete={deleteComment}
+            selectedPath={selectedCommentPath}
+            onSelectFile={selectCommentFile}
+            collapsedDirectories={collapsedCommentDirectories}
+            onToggleDirectory={toggleCommentDirectory}
           />
         ) : files.length === 0 ? (
           <div className="flex-1">
@@ -294,21 +330,13 @@ export function App() {
             </EmptyState>
           </div>
         ) : (
-          <Sidebar.Provider
-            open={sidebarOpen}
-            onOpenChange={setSidebarOpen}
-            resizable
-            defaultWidth={sidebarWidth}
-            minWidth={SIDEBAR_MIN_WIDTH}
-            maxWidth={SIDEBAR_MAX_WIDTH}
-            onWidthChange={setSidebarWidth}
-            contained
-            mobileBreakpoint={0}
-            className="min-h-0 flex-1"
-          >
+          <>
             <FileList
-              files={files}
-              comments={reviewComments}
+              files={files.map((file) => ({
+                path: diffFilePath(file),
+                change: file,
+                commentCount: reviewComments.filter((comment) => comment.file === diffFilePath(file) && comment.status === "open").length,
+              }))}
               selectedPath={selectedPath}
               onSelect={selectFile}
               collapsedDirectories={collapsedDirectories}
@@ -340,9 +368,9 @@ export function App() {
                 );
               })}
             </main>
-          </Sidebar.Provider>
+          </>
         )}
-      </div>
+      </Sidebar.Provider>
     </div>
   );
 }

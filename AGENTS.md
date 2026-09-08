@@ -67,6 +67,10 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
   keeps direct file shortcuts.
 - The sidebar's right-edge `Sidebar.ResizeHandle` uses Kumo's built-in resizing
   (200–600px). App persists its width under `diffreview-sidebar-width` in localStorage.
+- Comments → By file reuses `FileList` and the path-based tree builder. Its files
+  and badges come from the status-filtered comment groups, including historical
+  files. Selecting a file expands and scrolls to its group. Sidebar width/open
+  state is shared with Changes; selection and directory collapse state are separate.
 - MCP discovers the running server by hashing the repo root and reading the
   matching session file.
 
