@@ -15,6 +15,10 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { CommentList } from "./components/CommentList";
 import type { CommentGrouping, CommentSort } from "./comment-groups";
 
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 600;
+const SIDEBAR_DEFAULT_WIDTH = 260;
+
 export function App() {
   const toasts = useKumoToastManager();
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -29,6 +33,18 @@ export function App() {
   const [collapsedCommentPaths, setCollapsedCommentPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
+  const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem("diffreview-sidebar-width");
+      const width = saved === null ? SIDEBAR_DEFAULT_WIDTH : Number(saved);
+      return Number.isFinite(width)
+        ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width))
+        : SIDEBAR_DEFAULT_WIDTH;
+    } catch {
+      return SIDEBAR_DEFAULT_WIDTH;
+    }
+  });
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try {
       return localStorage.getItem("diffreview-sidebar") !== "false";
@@ -45,6 +61,14 @@ export function App() {
       // Storage may be disabled in some contexts — ignore.
     }
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("diffreview-sidebar-width", String(sidebarWidth));
+    } catch {
+      // Storage may be disabled in some contexts — ignore.
+    }
+  }, [sidebarWidth]);
 
   const refreshDiff = useCallback(async () => {
     try {
@@ -164,6 +188,15 @@ export function App() {
     });
   }, []);
 
+  const toggleDirectory = useCallback((path: string) => {
+    setCollapsedDirectories((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (!selectedPath) return;
     const el = fileRefs.current[selectedPath];
@@ -264,6 +297,11 @@ export function App() {
           <Sidebar.Provider
             open={sidebarOpen}
             onOpenChange={setSidebarOpen}
+            resizable
+            defaultWidth={sidebarWidth}
+            minWidth={SIDEBAR_MIN_WIDTH}
+            maxWidth={SIDEBAR_MAX_WIDTH}
+            onWidthChange={setSidebarWidth}
             contained
             mobileBreakpoint={0}
             className="min-h-0 flex-1"
@@ -273,6 +311,8 @@ export function App() {
               comments={reviewComments}
               selectedPath={selectedPath}
               onSelect={selectFile}
+              collapsedDirectories={collapsedDirectories}
+              onToggleDirectory={toggleDirectory}
             />
             <main className="min-w-0 flex-1 overflow-y-auto">
               {files.map((file) => {

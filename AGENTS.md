@@ -61,6 +61,12 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
 - UI and MCP are **read-only consumers** of the server. The server is the only
   writer to the comment store.
 - UI receives invalidation events via SSE and refetches `/api/diff` + `/api/comments`.
+- The Changes sidebar uses `web/file-tree.ts` to group canonical diff paths into
+  a folders-first tree. Folders start expanded; collapsed directory state lives
+  in App so it survives view switches and refreshes. The collapsed sidebar rail
+  keeps direct file shortcuts.
+- The sidebar's right-edge `Sidebar.ResizeHandle` uses Kumo's built-in resizing
+  (200–600px). App persists its width under `diffreview-sidebar-width` in localStorage.
 - MCP discovers the running server by hashing the repo root and reading the
   matching session file.
 
