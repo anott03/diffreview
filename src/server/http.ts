@@ -19,6 +19,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/unstable/http";
 import type { CommentStatus, SseEventType } from "../shared/types";
 import { resolveAnchors } from "./diff";
+import { contextFromDiff, contextFromHead } from "./comment-context";
 import * as S from "./api-schemas";
 import { Api, BadRequestError, InternalError, NotFoundError } from "./api";
 import { CommentStore } from "./store";
@@ -90,7 +91,9 @@ export const ApiHandlers = HttpApiBuilder.group(
         if (query.file) filter.file = query.file;
 
         const stored = yield* Effect.catch(store.list(filter), toError);
-        const resolved = resolveAnchors(yield* watcher.files, stored);
+        const files = yield* watcher.files;
+        const resolved = resolveAnchors(files, stored);
+        const headFiles = new Map<string, string | null>();
 
         // Persist re-anchored line numbers so anchors converge over time.
         for (let i = 0; i < resolved.length; i++) {
@@ -99,6 +102,23 @@ export const ApiHandlers = HttpApiBuilder.group(
           if (!r.outdated && r.line !== o.line) {
             yield* Effect.catch(store.update(o.id, { line: r.line }), toError);
           }
+          if (!r.context) {
+            const snapshot = contextFromDiff(files, r);
+            if (snapshot) {
+              r.context = snapshot;
+              yield* Effect.catch(store.update(o.id, { context: snapshot }), toError);
+            } else {
+              if (!headFiles.has(r.file)) {
+                const text = yield* git.run(config.repoRoot, ["show", `HEAD:${r.file}`]).pipe(
+                  Effect.catch(() => Effect.succeed(null))
+                );
+                headFiles.set(r.file, text);
+              }
+              const text = headFiles.get(r.file);
+              const context = text == null ? undefined : contextFromHead(text, r);
+              if (context) r.context = context;
+            }
+          }
         }
 
         return { comments: resolved };
@@ -106,7 +126,10 @@ export const ApiHandlers = HttpApiBuilder.group(
     .handleRaw("createComment", () =>
       Effect.gen(function*() {
         const input = yield* parseBody(S.CreateCommentRequestSchema);
-        const comment = yield* Effect.catch(store.create({ ...input, author: "user" }), toError);
+        const context = contextFromDiff(yield* watcher.files, input);
+        const comment = yield* Effect.catch(store.create({
+          ...input, author: "user", ...(context ? { context } : {})
+        }), toError);
         yield* watcher.publish({ type: "comments", at: Date.now() });
         return comment;
       }))

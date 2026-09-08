@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { CommentStore, StoreError } from "./store";
@@ -101,6 +102,42 @@ describe("CommentStore (Effect service)", () => {
         expect(loaded).not.toBeNull();
         expect(loaded!.body).toBe(baseInput.body);
         expect(loaded!.lineText).toBe(baseInput.lineText);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }));
+
+  it.effect("migrates legacy stores and preserves saved context across re-anchoring and restart", () =>
+    Effect.gen(function*() {
+      const dir = mkdtempSync(join(tmpdir(), "diffreview-store-migration-"));
+      try {
+        const dbPath = join(dir, "test.sqlite");
+        const created = yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          return yield* store.create(baseInput);
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
+
+        // Reproduce the previous schema, which had no context column.
+        const db = new DatabaseSync(dbPath);
+        db.exec("ALTER TABLE comments DROP COLUMN context");
+        db.close();
+
+        const context = {
+          source: "snapshot" as const,
+          line: 12,
+          lines: [{ line: 11, content: "// original code" }, { line: 12, content: baseInput.lineText }]
+        };
+        yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          expect(yield* store.get(created.id)).toEqual(created);
+          yield* store.update(created.id, { context });
+          yield* store.update(created.id, { line: 30, status: "addressed" });
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
+
+        yield* Effect.gen(function*() {
+          const store = yield* CommentStore;
+          expect(yield* store.get(created.id)).toMatchObject({ line: 30, status: "addressed", context });
+        }).pipe(Effect.provide(CommentStore.layer(dbPath)));
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

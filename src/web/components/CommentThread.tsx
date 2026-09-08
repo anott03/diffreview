@@ -1,6 +1,7 @@
 import { Badge, Button } from "@cloudflare/kumo";
 import { ArrowCounterClockwise, Trash } from "@phosphor-icons/react";
 import type { Comment } from "../../shared/types";
+import { CommentContext } from "./CommentContext";
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
@@ -16,15 +17,16 @@ interface CommentThreadProps {
   comment: Comment;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
+  showContext?: boolean;
 }
 
-export function CommentThread({ comment, onReopen, onDelete }: CommentThreadProps) {
+export function CommentThread({ comment, onReopen, onDelete, showContext = false }: CommentThreadProps) {
   return (
     <div className="border-l-2 border-kumo-brand bg-kumo-elevated px-4 py-2.5">
       <div className="mb-1 flex items-center gap-2">
         <Badge variant="secondary">you</Badge>
         {comment.status === "addressed" && <Badge variant="success">addressed</Badge>}
-        {comment.outdated && <Badge variant="warning">outdated</Badge>}
+        {comment.outdated && <Badge variant="warning">outside current diff</Badge>}
         <span className="text-xs text-kumo-subtle">
           line {comment.line} · {timeAgo(comment.createdAt)}
         </span>
@@ -51,6 +53,7 @@ export function CommentThread({ comment, onReopen, onDelete }: CommentThreadProp
         />
       </div>
       <p className="text-sm whitespace-pre-wrap">{comment.body}</p>
+      {showContext && <CommentContext comment={comment} />}
       {comment.status === "addressed" && comment.note && (
         <p className="mt-1.5 border-t border-kumo-line pt-1.5 text-xs text-kumo-subtle">
           <span className="font-medium text-kumo-success">agent:</span> {comment.note}

@@ -107,6 +107,12 @@ src/
   stored line number is updated to the new location (`outdated: false`).
 - If neither matches, the comment is returned as `outdated: true` and grouped in
   the UI.
+- The Comments view lists reviews independently of the current diff, including
+  committed files. `comment-context.ts` captures a bounded excerpt on the
+  commented side; the store persists it in the nullable `context` JSON column
+  (migrated automatically). Saved excerpt line numbers do not change when the
+  live anchor moves. Legacy comments without a snapshot can receive a matching
+  HEAD excerpt at read time, falling back to `lineText` in the UI.
 
 ### Kumo / Tailwind
 

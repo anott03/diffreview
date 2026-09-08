@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
-import type { Comment, CommentAuthor, CommentSide, CommentStatus } from "../shared/types";
+import type { Comment, CommentAuthor, CommentContext, CommentSide, CommentStatus } from "../shared/types";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS comments (
@@ -38,6 +38,7 @@ interface CommentRow {
   side: string;
   line: number;
   line_text: string;
+  context: string | null;
   body: string;
   author: string;
   status: string;
@@ -53,6 +54,7 @@ function rowToComment(row: CommentRow): Comment {
     side: row.side as CommentSide,
     line: row.line,
     lineText: row.line_text,
+    ...(row.context !== null ? { context: JSON.parse(row.context) as CommentContext } : {}),
     body: row.body,
     author: row.author as CommentAuthor,
     status: row.status as CommentStatus,
@@ -69,9 +71,11 @@ export interface CreateCommentInput {
   lineText: string;
   body: string;
   author: CommentAuthor;
+  context?: CommentContext;
 }
 
 export interface UpdateCommentInput {
+  context?: CommentContext;
   status?: CommentStatus;
   note?: string;
   body?: string;
@@ -93,6 +97,10 @@ function openDatabaseSync(dbPath: string): DatabaseSync {
   }
   const db = new DatabaseSync(dbPath);
   db.exec(SCHEMA);
+  const columns = db.prepare("PRAGMA table_info(comments)").all();
+  if (!columns.some((column) => column.name === "context")) {
+    db.exec("ALTER TABLE comments ADD COLUMN context TEXT");
+  }
   return db;
 }
 
@@ -125,9 +133,10 @@ function insertComment(db: DatabaseSync, input: CreateCommentInput): Comment {
   const now = Date.now();
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO comments (id, file, side, line, line_text, body, author, status, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, ?, ?)`,
-  ).run(id, input.file, input.side, input.line, input.lineText, input.body, input.author, now, now);
+    `INSERT INTO comments (id, file, side, line, line_text, body, author, status, note, created_at, updated_at, context)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, ?, ?, ?)`,
+  ).run(id, input.file, input.side, input.line, input.lineText, input.body, input.author, now, now,
+    input.context ? JSON.stringify(input.context) : null);
   return getComment(db, id)!;
 }
 
@@ -137,6 +146,10 @@ function updateComment(db: DatabaseSync, id: string, patch: UpdateCommentInput):
 
   const sets: string[] = [];
   const params: (string | number)[] = [];
+  if (patch.context !== undefined) {
+    sets.push("context = ?");
+    params.push(JSON.stringify(patch.context));
+  }
   if (patch.status !== undefined) {
     sets.push("status = ?");
     params.push(patch.status);

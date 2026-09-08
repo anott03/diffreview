@@ -1,16 +1,18 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
+import { Button } from "@cloudflare/kumo/components/button";
 import { Loader } from "@cloudflare/kumo/components/loader";
 import { Sidebar } from "@cloudflare/kumo/components/sidebar";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Comment, CreateCommentRequest, DiffFile, Meta } from "../shared/types";
+import type { Comment, CommentStatus, CreateCommentRequest, DiffFile, Meta } from "../shared/types";
 import { diffFilePath } from "../shared/types";
 import { api, useServerEvents } from "./api";
 import { DiffView, type Layout } from "./components/DiffView";
 import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { CommentList } from "./components/CommentList";
 
 export function App() {
   const toasts = useKumoToastManager();
@@ -18,6 +20,8 @@ export function App() {
   const [files, setFiles] = useState<DiffFile[] | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [layout, setLayout] = useState<Layout>("unified");
+  const [view, setView] = useState<"changes" | "comments">("changes");
+  const [commentStatus, setCommentStatus] = useState<CommentStatus | "all">("open");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -62,7 +66,10 @@ export function App() {
   }, [refreshDiff, refreshComments]);
 
   useServerEvents({
-    onDiff: () => void refreshDiff(),
+    onDiff: () => {
+      void refreshDiff();
+      void refreshComments();
+    },
     onComments: () => void refreshComments(),
   });
 
@@ -130,7 +137,7 @@ export function App() {
     if (!selectedPath) return;
     const el = fileRefs.current[selectedPath];
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selectedPath]);
+  }, [selectedPath, view]);
 
   const openCount = comments.filter((c) => c.status === "open").length;
 
@@ -146,6 +153,15 @@ export function App() {
     <div className="flex h-full flex-col">
       <header className="flex shrink-0 items-center gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2">
         <span className="text-sm font-semibold">diffreview</span>
+        <Tabs
+          size="sm"
+          tabs={[
+            { value: "changes", label: "Changes" },
+            { value: "comments", label: `Comments (${openCount} open)` },
+          ]}
+          value={view}
+          onValueChange={(value) => setView(value as "changes" | "comments")}
+        />
         {meta && (
           <>
             <span className="font-mono text-xs text-kumo-subtle">{meta.repoRoot}</span>
@@ -171,9 +187,26 @@ export function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {files.length === 0 ? (
+        {view === "comments" ? (
+          <CommentList
+            comments={comments}
+            status={commentStatus}
+            onStatusChange={setCommentStatus}
+            onReopen={reopenComment}
+            onDelete={deleteComment}
+          />
+        ) : files.length === 0 ? (
           <div className="flex-1">
-            <EmptyState />
+            <EmptyState>
+              {openCount > 0 && (
+                <Button variant="secondary" onClick={() => {
+                  setCommentStatus("open");
+                  setView("comments");
+                }}>
+                  View {openCount} open comment{openCount === 1 ? "" : "s"}
+                </Button>
+              )}
+            </EmptyState>
           </div>
         ) : (
           <Sidebar.Provider

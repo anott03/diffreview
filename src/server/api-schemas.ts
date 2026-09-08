@@ -61,12 +61,19 @@ export const DiffFileSchema = Schema.Struct({
 // Comment model
 // ---------------------------------------------------------------------------
 
+export const CommentContextSchema = Schema.Struct({
+  source: Schema.Literals(["snapshot", "head"]),
+  line: Schema.Number,
+  lines: ArrayOf(Schema.Struct({ line: Schema.Number, content: Schema.String }))
+});
+
 export const CommentSchema = Schema.Struct({
   id: Schema.String,
   file: Schema.String,
   side: SideSchema,
   line: Schema.Number,
   lineText: Schema.String,
+  context: Schema.optionalKey(CommentContextSchema),
   body: Schema.String,
   author: AuthorSchema,
   status: StatusSchema,

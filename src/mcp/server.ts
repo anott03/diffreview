@@ -120,10 +120,11 @@ server.registerTool(
   "list_review_comments",
   {
     description:
-      "List review comments a human left on your uncommitted changes. Default status is 'open' " +
+      "List review comments, including those on code that has since been committed. Default status is 'open' " +
       "(your work queue). Each comment includes the file, side (old/new), line number, the " +
-      "commented line's text, and the human's note. Comments with outdated=true refer to code " +
-      "that has changed since the comment was written.",
+      "commented line's text, available code context, and the human's note. Comments with outdated=true " +
+      "refer to code outside the current diff (changed or committed). Context is saved code or a " +
+      "matching excerpt from current HEAD, as indicated by context.source.",
     inputSchema: {
       status: z
         .enum(["open", "addressed", "all"])
@@ -148,6 +149,7 @@ server.registerTool(
           status: c.status,
           outdated: c.outdated ?? false,
           lineText: c.lineText,
+          ...(c.context ? { context: c.context } : {}),
           body: c.body,
           ...(c.note ? { note: c.note } : {}),
           createdAt: new Date(c.createdAt).toISOString(),

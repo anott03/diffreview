@@ -58,6 +58,14 @@ export type CommentSide = "old" | "new";
 export type CommentStatus = "open" | "addressed";
 export type CommentAuthor = "user" | "agent";
 
+export interface CommentContext {
+  /** Saved at comment time, or recovered from the current committed file. */
+  source: "snapshot" | "head";
+  /** Anchor position in this excerpt, independent of later re-anchoring. */
+  line: number;
+  lines: { line: number; content: string }[];
+}
+
 export interface Comment {
   id: string;
   /** Canonical file path the comment is anchored to (see diffFilePath). */
@@ -71,6 +79,8 @@ export interface Comment {
    * comment when the diff shifts, and to detect staleness.
    */
   lineText: string;
+  /** Code on the commented side, retained even after it leaves the diff. */
+  context?: CommentContext;
   body: string;
   author: CommentAuthor;
   status: CommentStatus;

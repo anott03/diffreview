@@ -3,6 +3,7 @@ import { Schema } from "effect";
 import type {
   ApiErrorResponse,
   Comment,
+  CommentContext,
   CreateCommentRequest,
   DiffFile,
   DiffHunk,
@@ -44,6 +45,7 @@ export type _Parity = [
   ...MutuallyAssignable<SType<typeof S.DiffHunkSchema>, DiffHunk>,
   ...MutuallyAssignable<SType<typeof S.DiffFileSchema>, DiffFile>,
   ...MutuallyAssignable<SType<typeof S.CommentSchema>, Comment>,
+  ...MutuallyAssignable<SType<typeof S.CommentContextSchema>, CommentContext>,
   ...MutuallyAssignable<SType<typeof S.CreateCommentRequestSchema>, CreateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.UpdateCommentRequestSchema>, UpdateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.MetaSchema>, Meta>,

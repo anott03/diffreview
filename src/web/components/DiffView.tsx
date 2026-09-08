@@ -111,14 +111,15 @@ export function DiffView({
         {outdated.length > 0 && (
           <details className="border-b border-kumo-line">
             <summary className="cursor-pointer px-4 py-2 text-xs text-kumo-subtle select-none">
-              {outdated.length} outdated comment{outdated.length === 1 ? "" : "s"} (anchored to code
-              that has since changed)
+              {outdated.length} comment{outdated.length === 1 ? "" : "s"} outside the current diff
+              {" "}(code changed or committed)
             </summary>
             <div className="flex flex-col gap-px pb-px">
               {outdated.map((comment) => (
                 <CommentThread
                   key={comment.id}
                   comment={comment}
+                  showContext
                   onReopen={onReopen}
                   onDelete={onDelete}
                 />

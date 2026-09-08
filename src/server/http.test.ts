@@ -231,4 +231,56 @@ describe("Effect HTTP server (wire contract)", () => {
     expect(text).toContain('"type":"diff"');
     expect(text).toMatch(/"at":\d+/);
   });
+
+  it("keeps open comments and saved code after commits, including removed code", async () => {
+    const create = async (side: string, lineText: string) => {
+      const res = await handler(new Request("http://localhost/api/comments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file: "a.txt", side, line: 2, lineText, body: "Still needs attention" })
+      }));
+      expect(res.status).toBe(201);
+      return res.json();
+    };
+    const old = await create("old", "two");
+    const added = await create("new", "TWO");
+    expect(old.context.lines).toEqual([
+      { line: 1, content: "one" },
+      { line: 2, content: "two" },
+      { line: 3, content: "three" }
+    ]);
+    expect(added.context.lines).toContainEqual({ line: 2, content: "TWO" });
+
+    await git(repoDir, ["add", "."]);
+    await git(repoDir, ["-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "--quiet", "-m", "reviewed change"]);
+    const clean = await waitFor(
+      async () => (await handler(new Request("http://localhost/api/diff"))).json(),
+      (diff: any) => diff.files.length === 0
+    );
+    expect(clean.files).toEqual([]);
+    const list = await (await handler(new Request("http://localhost/api/comments?status=open"))).json();
+    for (const original of [old, added]) {
+      expect(list.comments.find((c: any) => c.id === original.id)).toMatchObject({
+        status: "open", outdated: true, context: original.context
+      });
+    }
+
+    // A comment without a snapshot (as in pre-migration databases) recovers matching HEAD context.
+    const legacy = await create("new", "TWO");
+    expect(legacy.context).toBeUndefined();
+    const recovered = await (await handler(new Request("http://localhost/api/comments"))).json();
+    expect(recovered.comments.find((c: any) => c.id === legacy.id).context).toMatchObject({
+      source: "head", line: 2,
+      lines: expect.arrayContaining([{ line: 1, content: "one" }, { line: 2, content: "TWO" }])
+    });
+
+    await git(repoDir, ["rm", "a.txt"]);
+    await git(repoDir, ["-c", "user.email=t@t.t", "-c", "user.name=t", "commit", "--quiet", "-m", "remove file"]);
+    const removed = await (await handler(new Request("http://localhost/api/comments?status=open"))).json();
+    expect(removed.comments.find((c: any) => c.id === old.id).context).toEqual(old.context);
+    expect(removed.comments.find((c: any) => c.id === legacy.id)).toMatchObject({
+      status: "open", lineText: "TWO"
+    });
+    expect(removed.comments.find((c: any) => c.id === legacy.id).context).toBeUndefined();
+  });
 });
