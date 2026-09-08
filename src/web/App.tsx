@@ -273,15 +273,17 @@ export function App() {
             {allCollapsed ? "Expand all" : "Collapse all"}
           </Button>
         )}
-        <Tabs
-          size="sm"
-          tabs={[
-            { value: "unified", label: "Unified" },
-            { value: "split", label: "Split" },
-          ]}
-          value={layout}
-          onValueChange={(value) => setLayout(value as Layout)}
-        />
+        {view === "changes" && (
+          <Tabs
+            size="sm"
+            tabs={[
+              { value: "unified", label: "Unified" },
+              { value: "split", label: "Split" },
+            ]}
+            value={layout}
+            onValueChange={(value) => setLayout(value as Layout)}
+          />
+        )}
       </header>
 
       <Sidebar.Provider
