@@ -103,6 +103,9 @@ pnpm dev:server
 # Web UI only
 pnpm dev:web
 
+# Lint with Oxlint and anti-slop rules
+pnpm lint
+
 # Type check
 pnpm typecheck
 

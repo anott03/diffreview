@@ -20,6 +20,7 @@ pnpm build        # build web + bundle server + MCP (output in dist/)
 pnpm start        # run the bundled server
 pnpm test         # vitest run (suite in src/**/*.test.ts)
 pnpm typecheck    # tsc --noEmit
+pnpm lint         # Oxlint + local anti-slop rules
 ```
 
 Global install for local CLI use:
