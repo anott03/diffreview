@@ -13,7 +13,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, Layer, Option, Schedule, Schema, Stream, flow } from "effect";
+import { Cache, Effect, Exit, Layer, Schedule, Schema, Stream, flow } from "effect";
 import { NodeFileSystem, NodeHttpServer, NodePath } from "@effect/platform-node";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/unstable/http";
@@ -26,22 +26,11 @@ import { Git } from "./git";
 import { Watcher } from "./watcher";
 import { Session } from "./session";
 import { ServerConfig } from "./config";
+import { errMessage } from "./error-message";
 
 // ---------------------------------------------------------------------------
 // Error mapping — `{ error: message }` bodies, matching the legacy onError
 // ---------------------------------------------------------------------------
-
-const errMessage = flow(
-  Schema.decodeUnknownOption(Schema.Union([
-    Schema.instanceOf(Error).pipe(Schema.check(Schema.makeFilter((error) => Boolean(error.message)))),
-    Schema.Struct({ message: Schema.NonEmptyString }),
-    Schema.Struct({ cause: Schema.instanceOf(Error) })
-  ])),
-  Option.match({
-    onNone: () => "internal error",
-    onSome: (error) => "message" in error ? error.message : error.cause.message || "internal error"
-  })
-);
 
 const toError = flow(errMessage, (error) => Effect.fail(new InternalError({ error })));
 
@@ -70,6 +59,13 @@ export const ApiHandlers = HttpApiBuilder.group(
   const watcher = yield* Watcher;
   const store = yield* CommentStore;
   const config = yield* ServerConfig;
+  const committedFiles = yield* Cache.makeWith(
+    (revisionPath: string) => git.run(config.repoRoot, ["show", revisionPath]),
+    {
+      capacity: 128,
+      timeToLive: (exit) => Exit.isSuccess(exit) ? "5 minutes" : "5 seconds"
+    }
+  );
 
   return handlers
     .handle("meta", () =>
@@ -97,7 +93,6 @@ export const ApiHandlers = HttpApiBuilder.group(
         const stored = yield* Effect.catch(store.list(filter), toError);
         const { files, reviewId, head } = yield* Effect.catch(watcher.snapshot, toError);
         const resolved = resolveAnchors(files, stored, reviewId);
-        const headFiles = new Map<string, string | null>();
 
         // Persist re-anchored line numbers so anchors converge over time.
         for (let i = 0; i < resolved.length; i++) {
@@ -112,13 +107,9 @@ export const ApiHandlers = HttpApiBuilder.group(
               r.context = snapshot;
               yield* Effect.catch(store.update(o.id, { context: snapshot }), toError);
             } else {
-              if (!headFiles.has(r.file)) {
-                const text = yield* git.run(config.repoRoot, ["show", `${head || "HEAD"}:${r.file}`]).pipe(
-                  Effect.catch(() => Effect.succeed(null))
-                );
-                headFiles.set(r.file, text);
-              }
-              const text = headFiles.get(r.file);
+              const text = head ? yield* Cache.get(committedFiles, `${head}:${r.file}`).pipe(
+                Effect.catch(() => Effect.succeed(null))
+              ) : null;
               const context = text == null ? undefined : contextFromHead(text, r);
               if (context) r.context = context;
             }

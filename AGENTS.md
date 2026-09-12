@@ -150,7 +150,10 @@ src/
   commented side; the store persists it in the nullable `context` JSON column
   (migrated automatically). Saved excerpt line numbers do not change when the
   live anchor moves. Legacy comments without a snapshot can receive a matching
-  HEAD excerpt at read time, falling back to `lineText` in the UI.
+  HEAD excerpt at read time, falling back to `lineText` in the UI. Committed
+  file reads use a bounded cache keyed by commit hash and file path. Successful
+  reads expire after five minutes; failures retry after five seconds. Recovered
+  HEAD context remains read-time data, not a persisted snapshot.
 - Comments default to a flat list sorted by most recent creation time. The
   By file / List toggle switches between collapsible file groups and global
   chronological order. File groups follow their first visible comment in that

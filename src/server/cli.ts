@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { Effect, Option, Schema, flow } from "effect";
+import { Effect } from "effect";
 import { NodeRuntime } from "@effect/platform-node";
 import pkg from "../../package.json";
 import { getRepoRoot } from "./git";
@@ -10,6 +10,7 @@ import { findWebRoot, serverLayer } from "./http";
 import { dbPathForRepo } from "./paths";
 import { Session } from "./session";
 import { ServerConfig } from "./config";
+import { errMessage } from "./error-message";
 
 const USAGE = `Usage: diffreview [repoPath] [options]
 
@@ -30,18 +31,6 @@ function fail(message: string): never {
   console.error(`diffreview: ${message}`);
   process.exit(1);
 }
-
-const errMessage = flow(
-  Schema.decodeUnknownOption(Schema.Union([
-    Schema.instanceOf(Error).pipe(Schema.check(Schema.makeFilter((error) => Boolean(error.message)))),
-    Schema.Struct({ message: Schema.NonEmptyString }),
-    Schema.Struct({ cause: Schema.instanceOf(Error) })
-  ])),
-  Option.match({
-    onNone: () => "internal error",
-    onSome: (error) => "message" in error ? error.message : error.cause.message || "internal error"
-  })
-);
 
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({

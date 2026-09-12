@@ -59,8 +59,10 @@ server.registerTool(
   {
     description:
       "Summarize the uncommitted changes (vs HEAD) of this git repository: branch, per-file stats, " +
-      "and open review-comment counts. A human is reviewing these changes with the diffreview tool; " +
-      "use this to orient before reading comments.",
+      "and open review-comment counts. Per-file counts cover only the current review. " +
+      "totals.allReviewOpenComments includes historical comments; totals.currentReviewOpenComments " +
+      "covers the current review, including comments on files no longer in the diff. " +
+      "A human is reviewing these changes with the diffreview tool; use this to orient before reading comments.",
   },
   async () => {
     const conn = await connect();
@@ -85,7 +87,7 @@ server.registerTool(
           files: meta.files,
           additions: meta.additions,
           deletions: meta.deletions,
-          openComments: comments.comments.length,
+          allReviewOpenComments: comments.comments.length,
           currentReviewOpenComments: currentComments.length,
         },
         files: diff.files.map((f) => {
