@@ -2,7 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import pkg from "../../package.json";
-import type { Comment, GetDiffResponse, ListCommentsResponse, Meta } from "../shared/types";
+import type { Comment, DiffFileStatus, UpdateCommentRequest } from "../shared/types";
+import {
+  CommentSchema,
+  GetDiffResponseSchema,
+  ListCommentsResponseSchema,
+  MetaSchema,
+} from "../shared/response-schemas";
 import { diffFilePath } from "../shared/types";
 import { apiGet, apiPatch, resolveClient, type ResolvedClient } from "./client";
 import { renderUnifiedDiff } from "./render";
@@ -11,10 +17,25 @@ const MAX_DIFF_CHARS = 100_000;
 
 type ToolTextResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
-function ok(data: unknown): ToolTextResult {
-  return {
-    content: [{ type: "text", text: typeof data === "string" ? data : JSON.stringify(data, null, 2) }],
-  };
+interface DiffSummaryFile {
+  path: string;
+  status: DiffFileStatus;
+  additions: number;
+  deletions: number;
+  binary?: true;
+  openComments: number;
+}
+
+interface ReviewComment extends Pick<Comment, "id" | "file" | "side" | "line" | "status" | "lineText" | "context" | "body" | "note"> {
+  reviewId: string | null;
+  reviewHead: string | null;
+  historical: boolean;
+  outdated: boolean;
+  createdAt: string;
+}
+
+function ok(text: string): ToolTextResult {
+  return { content: [{ type: "text", text }] };
 }
 
 function fail(message: string): ToolTextResult {
@@ -46,16 +67,16 @@ server.registerTool(
     if ("error" in conn) return conn.error;
     try {
       const [meta, diff, comments] = await Promise.all([
-        apiGet<Meta>(conn.client, "/api/meta"),
-        apiGet<GetDiffResponse>(conn.client, "/api/diff"),
-        apiGet<ListCommentsResponse>(conn.client, "/api/comments?status=open"),
+        apiGet(conn.client, "/api/meta", MetaSchema),
+        apiGet(conn.client, "/api/diff", GetDiffResponseSchema),
+        apiGet(conn.client, "/api/comments?status=open", ListCommentsResponseSchema),
       ]);
       const openByFile = new Map<string, number>();
       const currentComments = comments.comments.filter((c) => c.reviewId === diff.reviewId && !c.historical);
       for (const c of currentComments) {
         openByFile.set(c.file, (openByFile.get(c.file) ?? 0) + 1);
       }
-      return ok({
+      return ok(JSON.stringify({
         repoRoot: meta.repoRoot,
         branch: meta.branch,
         head: meta.head,
@@ -67,17 +88,20 @@ server.registerTool(
           openComments: comments.comments.length,
           currentReviewOpenComments: currentComments.length,
         },
-        files: diff.files.map((f) => ({
-          path: diffFilePath(f),
-          status: f.status,
-          additions: f.additions,
-          deletions: f.deletions,
-          ...(f.isBinary ? { binary: true } : {}),
-          openComments: openByFile.get(diffFilePath(f)) ?? 0,
-        })),
-      });
+        files: diff.files.map((f) => {
+          const summary: DiffSummaryFile = {
+            path: diffFilePath(f),
+            status: f.status,
+            additions: f.additions,
+            deletions: f.deletions,
+            openComments: openByFile.get(diffFilePath(f)) ?? 0,
+          };
+          if (f.isBinary) summary.binary = true;
+          return summary;
+        }),
+      }, null, 2));
     } catch (err) {
-      return fail(`failed to fetch diff summary: ${(err as Error).message}`);
+      return fail(`failed to fetch diff summary: ${err instanceof Error ? err.message : String(err)}`);
     }
   },
 );
@@ -100,7 +124,7 @@ server.registerTool(
     const conn = await connect();
     if ("error" in conn) return conn.error;
     try {
-      const diff = await apiGet<GetDiffResponse>(conn.client, "/api/diff");
+      const diff = await apiGet(conn.client, "/api/diff", GetDiffResponseSchema);
       let text = renderUnifiedDiff(diff.files, file);
       if (!text) {
         return fail(
@@ -114,7 +138,7 @@ server.registerTool(
       }
       return ok(text);
     } catch (err) {
-      return fail(`failed to fetch diff: ${(err as Error).message}`);
+      return fail(`failed to fetch diff: ${err instanceof Error ? err.message : String(err)}`);
     }
   },
 );
@@ -144,9 +168,9 @@ server.registerTool(
     try {
       const params = new URLSearchParams({ status: status ?? "open" });
       if (file) params.set("file", file);
-      const res = await apiGet<ListCommentsResponse>(conn.client, `/api/comments?${params}`);
-      return ok(
-        res.comments.map((c) => ({
+      const res = await apiGet(conn.client, `/api/comments?${params}`, ListCommentsResponseSchema);
+      const comments = res.comments.map((c) => {
+        const comment: ReviewComment = {
           id: c.id,
           reviewId: c.reviewId ?? null,
           reviewHead: c.reviewHead ?? null,
@@ -157,14 +181,16 @@ server.registerTool(
           status: c.status,
           outdated: c.outdated ?? false,
           lineText: c.lineText,
-          ...(c.context ? { context: c.context } : {}),
           body: c.body,
-          ...(c.note ? { note: c.note } : {}),
           createdAt: new Date(c.createdAt).toISOString(),
-        })),
-      );
+        };
+        if (c.context) comment.context = c.context;
+        if (c.note) comment.note = c.note;
+        return comment;
+      });
+      return ok(JSON.stringify(comments, null, 2));
     } catch (err) {
-      return fail(`failed to list comments: ${(err as Error).message}`);
+      return fail(`failed to list comments: ${err instanceof Error ? err.message : String(err)}`);
     }
   },
 );
@@ -185,16 +211,15 @@ server.registerTool(
     const conn = await connect();
     if ("error" in conn) return conn.error;
     try {
-      const updated = await apiPatch<Comment>(conn.client, `/api/comments/${id}`, {
-        status: "addressed",
-        ...(note ? { note } : {}),
-      });
+      const patch: UpdateCommentRequest = { status: "addressed" };
+      if (note) patch.note = note;
+      const updated = await apiPatch(conn.client, `/api/comments/${id}`, patch, CommentSchema);
       if (!updated) {
         return fail(`Comment not found: ${id}. Call list_review_comments with status=all to see current comments.`);
       }
-      return ok(updated);
+      return ok(JSON.stringify(updated, null, 2));
     } catch (err) {
-      return fail(`failed to mark comment addressed: ${(err as Error).message}`);
+      return fail(`failed to mark comment addressed: ${err instanceof Error ? err.message : String(err)}`);
     }
   },
 );

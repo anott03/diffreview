@@ -1,44 +1,43 @@
 import { useEffect, useRef } from "react";
-import type {
-  ApiErrorResponse,
-  Comment,
-  CreateCommentRequest,
-  GetDiffResponse,
-  ListCommentsResponse,
-  Meta,
-  UpdateCommentRequest,
-} from "../shared/types";
+import { z } from "zod";
+import type { CreateCommentRequest, UpdateCommentRequest } from "../shared/types";
+import {
+  ApiErrorResponseSchema,
+  CommentSchema,
+  GetDiffResponseSchema,
+  ListCommentsResponseSchema,
+  MetaSchema,
+} from "../shared/response-schemas";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
     try {
-      const body = (await res.json()) as ApiErrorResponse;
+      const body = ApiErrorResponseSchema.parse(await res.json());
       if (body.error) message = body.error;
     } catch {
       // keep the status-based message
     }
     throw new Error(message);
   }
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return schema.parse(res.status === 204 ? undefined : await res.json());
 }
 
-const json = (body: unknown) => ({
+const json = (body: CreateCommentRequest | UpdateCommentRequest) => ({
   headers: { "content-type": "application/json" },
   body: JSON.stringify(body),
 });
 
 export const api = {
-  getMeta: () => request<Meta>("/api/meta"),
-  getDiff: () => request<GetDiffResponse>("/api/diff"),
-  getComments: () => request<ListCommentsResponse>("/api/comments?status=all"),
+  getMeta: () => request("/api/meta", MetaSchema),
+  getDiff: () => request("/api/diff", GetDiffResponseSchema),
+  getComments: () => request("/api/comments?status=all", ListCommentsResponseSchema),
   createComment: (input: CreateCommentRequest) =>
-    request<Comment>("/api/comments", { method: "POST", ...json(input) }),
+    request("/api/comments", CommentSchema, { method: "POST", ...json(input) }),
   updateComment: (id: string, patch: UpdateCommentRequest) =>
-    request<Comment>(`/api/comments/${id}`, { method: "PATCH", ...json(patch) }),
-  deleteComment: (id: string) => request<void>(`/api/comments/${id}`, { method: "DELETE" }),
+    request(`/api/comments/${id}`, CommentSchema, { method: "PATCH", ...json(patch) }),
+  deleteComment: (id: string) => request(`/api/comments/${id}`, z.void(), { method: "DELETE" }),
 };
 
 /**

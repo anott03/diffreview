@@ -1,7 +1,16 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { Context, Effect, Layer, Semaphore } from "effect";
+import { Context, Effect, Layer, Schema, Semaphore } from "effect";
 import type { SessionInfo } from "../shared/types";
 import { sessionPathForRepo, sessionsDir } from "./paths";
+
+const SessionInfoSchema = Schema.Struct({
+  port: Schema.Number,
+  pid: Schema.Number,
+  repoRoot: Schema.String,
+  startedAt: Schema.Number
+});
+
+const decodeSession = Schema.decodeUnknownSync(Schema.fromJsonString(SessionInfoSchema));
 
 /**
  * The session file is how diffreview-mcp (spawned by opencode with the repo
@@ -15,7 +24,7 @@ export function writeSession(info: SessionInfo): void {
 
 export function readSession(repoRoot: string): SessionInfo | null {
   try {
-    return JSON.parse(readFileSync(sessionPathForRepo(repoRoot), "utf8")) as SessionInfo;
+    return decodeSession(readFileSync(sessionPathForRepo(repoRoot), "utf8"));
   } catch {
     return null;
   }
@@ -67,7 +76,7 @@ export class Session extends Context.Service<Session, {
           sema.withPermits(1)(
             Effect.try({
               try: () => writeSession(info),
-              catch: (cause) => ({ op: "write", cause }) as unknown as SessionError
+              catch: (cause) => ({ op: "write", cause }) satisfies SessionError
             })
           ),
         read: (repoRoot) => Effect.sync(() => readSession(repoRoot)),

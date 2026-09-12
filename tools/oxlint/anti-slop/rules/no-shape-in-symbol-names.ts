@@ -7,13 +7,12 @@ function containsForbiddenSymbolName(name: string): boolean {
   return name.toLowerCase().includes(FORBIDDEN_SYMBOL_NAME);
 }
 
-/** Ban the case-insensitive substring "shape" in every JavaScript and TypeScript symbol name. */
 export const noForbiddenTermInSymbolNamesRule = defineRule({
   meta: {
     type: "problem",
     docs: {
       description:
-        'Disallow the case-insensitive substring "shape" in JavaScript, TypeScript, private, and JSX symbol names.',
+        'Disallow the case-insensitive substring "shape" in JavaScript, TypeScript, private, and JSX symbol names, excluding JSX attributes.',
     },
     messages: {
       forbiddenSymbolName:
@@ -33,7 +32,11 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
     return {
       Identifier: reportForbiddenSymbolName,
       PrivateIdentifier: reportForbiddenSymbolName,
-      JSXIdentifier: reportForbiddenSymbolName,
+      JSXIdentifier(node) {
+        if (node.parent.type === "JSXAttribute" && node.parent.name === node) return;
+        if (node.parent.type === "JSXNamespacedName" && node.parent.parent.type === "JSXAttribute") return;
+        reportForbiddenSymbolName(node);
+      },
     };
   },
 });

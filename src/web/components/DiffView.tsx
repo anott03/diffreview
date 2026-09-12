@@ -10,12 +10,12 @@ import { anchorKey, SplitDiffTable, UnifiedDiffTable, type EditingAnchor } from 
 
 export type Layout = "unified" | "split";
 
-const STATUS_BADGE: Record<DiffFile["status"], { variant: "success" | "error" | "warning" | "info"; label: string }> = {
+const STATUS_BADGE = {
   added: { variant: "success", label: "added" },
   deleted: { variant: "error", label: "deleted" },
   modified: { variant: "warning", label: "modified" },
   renamed: { variant: "info", label: "renamed" },
-};
+} satisfies Record<DiffFile["status"], { variant: "success" | "error" | "warning" | "info"; label: string }>;
 
 interface DiffViewProps {
   file: DiffFile;

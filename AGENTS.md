@@ -111,6 +111,16 @@ src/
 - Server-side Effect Schema contracts live in `src/server/api-schemas.ts`;
   they must stay shape-compatible with `shared/types.ts` (asserted by
   `api-schemas.test.ts`).
+- UI and MCP validate HTTP responses with Zod schemas in
+  `src/shared/response-schemas.ts`. Keep these aligned with the shared types
+  and server response schemas when changing contracts.
+
+### Lint
+
+- `pnpm lint` runs Oxlint and the local plugin in `tools/oxlint/anti-slop/`.
+- The symbol-name rule excludes JSX attribute names so component APIs such
+  as Kumo's `shape` prop remain usable. Preserve this adjustment when updating
+  the vendored plugin.
 
 ### Comment anchoring rule
 

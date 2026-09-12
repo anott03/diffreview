@@ -100,7 +100,7 @@ describe("CommentSchema", () => {
   });
 
   it("keeps present-but-false outdated in encoded JSON (Hono parity)", () => {
-    const comment = { ...SAMPLE_COMMENT, outdated: false } as Comment;
+    const comment = { ...SAMPLE_COMMENT, outdated: false } satisfies Comment;
     const json = JSON.stringify(Schema.encodeSync(S.CommentSchema)(comment));
     expect(json).toContain('"outdated":false');
   });

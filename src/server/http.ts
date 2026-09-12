@@ -13,16 +13,15 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, Layer, Schedule, Schema, Stream } from "effect";
+import { Effect, Layer, Option, Schedule, Schema, Stream, flow } from "effect";
 import { NodeFileSystem, NodeHttpServer, NodePath } from "@effect/platform-node";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/unstable/http";
-import type { CommentStatus, SseEventType } from "../shared/types";
 import { resolveAnchors } from "./diff";
 import { contextFromDiff, contextFromHead } from "./comment-context";
 import * as S from "./api-schemas";
 import { Api, BadRequestError, InternalError, NotFoundError } from "./api";
-import { CommentStore, type UpdateCommentInput } from "./store";
+import { CommentStore, type CommentFilter, type CreateCommentInput, type UpdateCommentInput } from "./store";
 import { Git } from "./git";
 import { Watcher } from "./watcher";
 import { Session } from "./session";
@@ -32,17 +31,19 @@ import { ServerConfig } from "./config";
 // Error mapping — `{ error: message }` bodies, matching the legacy onError
 // ---------------------------------------------------------------------------
 
-const errMessage = (e: unknown): string => {
-  if (e instanceof Error && e.message) return e.message;
-  if (typeof e === "object" && e !== null) {
-    const anyErr = e as { message?: unknown; cause?: unknown };
-    if (typeof anyErr.message === "string" && anyErr.message) return anyErr.message;
-    if (anyErr.cause instanceof Error && anyErr.cause.message) return anyErr.cause.message;
-  }
-  return "internal error";
-};
+const errMessage = flow(
+  Schema.decodeUnknownOption(Schema.Union([
+    Schema.instanceOf(Error).pipe(Schema.check(Schema.makeFilter((error) => Boolean(error.message)))),
+    Schema.Struct({ message: Schema.NonEmptyString }),
+    Schema.Struct({ cause: Schema.instanceOf(Error) })
+  ])),
+  Option.match({
+    onNone: () => "internal error",
+    onSome: (error) => "message" in error ? error.message : error.cause.message || "internal error"
+  })
+);
 
-const toError = (e: unknown) => Effect.fail(new InternalError({ error: errMessage(e) }));
+const toError = flow(errMessage, (error) => Effect.fail(new InternalError({ error })));
 
 /**
  * Manual JSON body decode for raw handlers: parse failures and schema
@@ -52,7 +53,7 @@ const toError = (e: unknown) => Effect.fail(new InternalError({ error: errMessag
  */
 const parseBody = <A, I, R>(schema: Schema.Codec<A, I, R>) =>
   Effect.gen(function*() {
-    const toBadRequest = (e: unknown) => Effect.fail(new BadRequestError({ error: errMessage(e) }));
+    const toBadRequest = flow(errMessage, (error) => Effect.fail(new BadRequestError({ error })));
     const input = yield* Effect.catch(HttpServerRequest.schemaBodyJson(Schema.Unknown), toBadRequest);
     return yield* Effect.catch(Schema.decodeUnknownEffect(schema)(input), toBadRequest);
   });
@@ -82,7 +83,7 @@ export const ApiHandlers = HttpApiBuilder.group(
     ))
     .handle("listComments", ({ query }) =>
       Effect.gen(function*() {
-        const filter: { status?: CommentStatus; file?: string } = {};
+        const filter: CommentFilter = {};
         if (query.status && query.status !== "all") {
           if (query.status !== "open" && query.status !== "addressed") {
             return yield* Effect.fail(
@@ -137,9 +138,9 @@ export const ApiHandlers = HttpApiBuilder.group(
           }));
         }
         const context = contextFromDiff(files, input);
-        const comment = yield* Effect.catch(store.create({
-          ...input, reviewId, author: "user", ...(context ? { context } : {})
-        }), toError);
+        const creation: CreateCommentInput = { ...input, reviewId, author: "user" };
+        if (context) creation.context = context;
+        const comment = yield* Effect.catch(store.create(creation), toError);
         yield* watcher.publish({ type: "comments", at: Date.now() });
         return comment;
       }))
@@ -179,7 +180,7 @@ export const ApiHandlers = HttpApiBuilder.group(
     .handle("events", () => {
       const events = watcher.changes.pipe(
         Stream.map(
-          (e): { id: string | undefined; event: SseEventType; data: { type: SseEventType; at: number } } => ({
+          (e) => ({
             id: undefined,
             event: e.type,
             data: { type: e.type, at: e.at }
@@ -188,7 +189,7 @@ export const ApiHandlers = HttpApiBuilder.group(
       );
       // Heartbeat: `event: ping`, data `{}` — matches the legacy 30s ping.
       const pings = Stream.fromSchedule(Schedule.spaced("30 seconds")).pipe(
-        Stream.map((): { id: string | undefined; event: string; data: {} } => ({
+        Stream.map(() => ({
           id: undefined,
           event: "ping",
           data: {}

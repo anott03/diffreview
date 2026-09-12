@@ -58,7 +58,9 @@ export function CommentList({ comments, status, sort, grouping, onGroupingChange
             { value: "all", label: "All" },
           ]}
           value={status}
-          onValueChange={(value) => onStatusChange(value as CommentStatus | "all")}
+          onValueChange={(value) => {
+            if (value === "open" || value === "addressed" || value === "all") onStatusChange(value);
+          }}
         />
         <Tabs
           size="sm"
@@ -67,7 +69,9 @@ export function CommentList({ comments, status, sort, grouping, onGroupingChange
             { value: "list", label: "List" },
           ]}
           value={grouping}
-          onValueChange={(value) => onGroupingChange(value as CommentGrouping)}
+          onValueChange={(value) => {
+            if (value === "file" || value === "list") onGroupingChange(value);
+          }}
         />
         <Select
           size="sm"

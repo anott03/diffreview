@@ -56,9 +56,9 @@ export class Git extends Context.Service<Git, {
   collectState(root: string): Effect.Effect<RawState, GitError>;
   getDiffFiles(root: string): Effect.Effect<Array<DiffFile>, GitError>;
 }>()("diffreview/server/Git") {
-  static readonly layer = Layer.effect(
+  static readonly layer = Layer.sync(
     Git,
-    Effect.gen(function*() {
+    () => {
       const run = Effect.fn("Git.run")(function*(root: string, args: string[]) {
         return yield* Effect.tryPromise({
           try: () =>
@@ -250,7 +250,7 @@ export class Git extends Context.Service<Git, {
         collectState,
         getDiffFiles
       });
-    })
+    }
   );
 }
 

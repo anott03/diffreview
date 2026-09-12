@@ -14,6 +14,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { Comment, CommentAuthor, CommentContext, CommentSide, CommentStatus } from "../shared/types";
+import { AuthorSchema, CommentContextSchema, SideSchema, StatusSchema } from "./api-schemas";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS comments (
@@ -42,40 +43,48 @@ CREATE TABLE IF NOT EXISTS reviews (
 INSERT OR IGNORE INTO reviews (id, head) SELECT id, head FROM current_review;
 `;
 
-interface CommentRow {
-  id: string;
-  review_id: string | null;
-  review_head: string | null;
-  file: string;
-  side: string;
-  line: number;
-  line_text: string;
-  context: string | null;
-  body: string;
-  author: string;
-  status: string;
-  note: string | null;
-  created_at: number;
-  updated_at: number;
-}
+const CommentRowSchema = Schema.Struct({
+  id: Schema.String,
+  review_id: Schema.NullOr(Schema.String),
+  review_head: Schema.NullOr(Schema.String),
+  file: Schema.String,
+  side: SideSchema,
+  line: Schema.Number,
+  line_text: Schema.String,
+  context: Schema.NullOr(Schema.fromJsonString(CommentContextSchema)),
+  body: Schema.String,
+  author: AuthorSchema,
+  status: StatusSchema,
+  note: Schema.NullOr(Schema.String),
+  created_at: Schema.Number,
+  updated_at: Schema.Number
+});
 
-function rowToComment(row: CommentRow): Comment {
-  return {
+const decodeCommentRows = Schema.decodeUnknownSync(Schema.Array(CommentRowSchema));
+const decodeCommentRow = Schema.decodeUnknownSync(Schema.UndefinedOr(CommentRowSchema));
+const decodeCurrentReview = Schema.decodeUnknownSync(Schema.UndefinedOr(Schema.Struct({
+  id: Schema.String,
+  head: Schema.String
+})));
+
+function rowToComment(row: typeof CommentRowSchema.Type): Comment {
+  const comment: Comment = {
     id: row.id,
-    ...(row.review_id !== null ? { reviewId: row.review_id } : {}),
-    ...(row.review_head !== null ? { reviewHead: row.review_head } : {}),
     file: row.file,
-    side: row.side as CommentSide,
+    side: row.side,
     line: row.line,
     lineText: row.line_text,
-    ...(row.context !== null ? { context: JSON.parse(row.context) as CommentContext } : {}),
     body: row.body,
-    author: row.author as CommentAuthor,
-    status: row.status as CommentStatus,
-    ...(row.note !== null ? { note: row.note } : {}),
+    author: row.author,
+    status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+  if (row.review_id !== null) comment.reviewId = row.review_id;
+  if (row.review_head !== null) comment.reviewHead = row.review_head;
+  if (row.context !== null) comment.context = row.context;
+  if (row.note !== null) comment.note = row.note;
+  return comment;
 }
 
 export interface CreateCommentInput {
@@ -138,16 +147,15 @@ function listComments(db: DatabaseSync, filter: CommentFilter = {}): Comment[] {
   const rows = db
     .prepare(`SELECT comments.*, reviews.head AS review_head FROM comments
       LEFT JOIN reviews ON reviews.id = comments.review_id${where} ORDER BY created_at ASC`)
-    .all(...params) as unknown as CommentRow[];
-  return rows.map(rowToComment);
+    .all(...params);
+  return decodeCommentRows(rows).map(rowToComment);
 }
 
 function getComment(db: DatabaseSync, id: string): Comment | null {
   const row = db.prepare(`SELECT comments.*, reviews.head AS review_head FROM comments
-    LEFT JOIN reviews ON reviews.id = comments.review_id WHERE comments.id = ?`).get(id) as unknown as
-    | CommentRow
-    | undefined;
-  return row ? rowToComment(row) : null;
+    LEFT JOIN reviews ON reviews.id = comments.review_id WHERE comments.id = ?`).get(id);
+  const commentRow = decodeCommentRow(row);
+  return commentRow ? rowToComment(commentRow) : null;
 }
 
 function insertComment(db: DatabaseSync, input: CreateCommentInput): Comment {
@@ -206,8 +214,10 @@ function removeComment(db: DatabaseSync, id: string): boolean {
 
 /** A HEAD transition ends the previous review, even when returning to an older HEAD. */
 function currentReview(db: DatabaseSync, head: string): string {
-  const current = db.prepare("SELECT id, head FROM current_review WHERE singleton = 1").get();
-  if (current?.head === head) return current.id as string;
+  const current = decodeCurrentReview(
+    db.prepare("SELECT id, head FROM current_review WHERE singleton = 1").get()
+  );
+  if (current?.head === head) return current.id;
   const id = randomUUID();
   db.prepare("INSERT INTO reviews (id, head) VALUES (?, ?)").run(id, head);
   db.prepare("INSERT OR REPLACE INTO current_review (singleton, id, head) VALUES (1, ?, ?)").run(id, head);

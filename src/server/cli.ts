@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { Effect } from "effect";
+import { Effect, Option, Schema, flow } from "effect";
 import { NodeRuntime } from "@effect/platform-node";
 import pkg from "../../package.json";
 import { getRepoRoot } from "./git";
@@ -31,15 +31,17 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const errMessage = (e: unknown): string => {
-  if (e instanceof Error && e.message) return e.message;
-  if (typeof e === "object" && e !== null) {
-    const anyErr = e as { message?: unknown; cause?: unknown };
-    if (typeof anyErr.message === "string" && anyErr.message) return anyErr.message;
-    if (anyErr.cause instanceof Error && anyErr.cause.message) return anyErr.cause.message;
-  }
-  return "internal error";
-};
+const errMessage = flow(
+  Schema.decodeUnknownOption(Schema.Union([
+    Schema.instanceOf(Error).pipe(Schema.check(Schema.makeFilter((error) => Boolean(error.message)))),
+    Schema.Struct({ message: Schema.NonEmptyString }),
+    Schema.Struct({ cause: Schema.instanceOf(Error) })
+  ])),
+  Option.match({
+    onNone: () => "internal error",
+    onSome: (error) => "message" in error ? error.message : error.cause.message || "internal error"
+  })
+);
 
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
@@ -68,7 +70,7 @@ async function main(): Promise<void> {
   try {
     repoRoot = await getRepoRoot(target);
   } catch (err) {
-    fail((err as Error).message);
+    fail(errMessage(err));
   }
 
   const webRoot = findWebRoot();

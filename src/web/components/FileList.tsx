@@ -15,12 +15,12 @@ import { useMemo, type ReactNode } from "react";
 import type { DiffFileStatus } from "../../shared/types";
 import { buildPathTree, type FileTreeNode } from "../file-tree";
 
-const STATUS_META: Record<DiffFileStatus, { icon: typeof FilePlusIcon; className: string; label: string }> = {
+const STATUS_META = {
   added: { icon: FilePlusIcon, className: "text-kumo-success", label: "added" },
   deleted: { icon: FileMinusIcon, className: "text-kumo-danger", label: "deleted" },
   modified: { icon: NotePencilIcon, className: "text-kumo-warning", label: "modified" },
   renamed: { icon: ArrowRightIcon, className: "text-kumo-info", label: "renamed" },
-};
+} satisfies Record<DiffFileStatus, { icon: typeof FilePlusIcon; className: string; label: string }>;
 
 export interface FileListEntry {
   path: string;

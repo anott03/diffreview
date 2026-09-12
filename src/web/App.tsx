@@ -123,7 +123,9 @@ export function App() {
 
   const submitComment = async (input: CreateCommentRequest) => {
     try {
-      await api.createComment({ ...input, ...(reviewId ? { reviewId } : {}) });
+      const request = { ...input };
+      if (reviewId) request.reviewId = reviewId;
+      await api.createComment(request);
       await refreshComments();
     } catch (err) {
       toasts.add({ variant: "error", title: "Failed to save comment", description: String(err) });
@@ -248,7 +250,9 @@ export function App() {
             { value: "comments", label: `Comments (${openCount} open)` },
           ]}
           value={view}
-          onValueChange={(value) => setView(value as "changes" | "comments")}
+          onValueChange={(value) => {
+            if (value === "changes" || value === "comments") setView(value);
+          }}
         />
         {meta && (
           <>
@@ -281,7 +285,9 @@ export function App() {
               { value: "split", label: "Split" },
             ]}
             value={layout}
-            onValueChange={(value) => setLayout(value as Layout)}
+            onValueChange={(value) => {
+              if (value === "unified" || value === "split") setLayout(value);
+            }}
           />
         )}
       </header>
