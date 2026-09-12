@@ -3,39 +3,6 @@ import type { Comment, DiffFile, DiffHunk, DiffLine } from "../shared/types";
 import { diffFilePath } from "../shared/types";
 
 // ---------------------------------------------------------------------------
-// Raw parse-diff shapes (local narrowing; parse-diff's own types are loose)
-// ---------------------------------------------------------------------------
-
-interface RawChange {
-  type: string;
-  ln?: number;
-  ln1?: number;
-  ln2?: number;
-  content: string;
-}
-
-interface RawChunk {
-  content: string;
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  changes: RawChange[];
-}
-
-interface RawFile {
-  chunks: RawChunk[];
-  additions: number;
-  deletions: number;
-  from?: string;
-  to?: string;
-  new?: boolean;
-  deleted?: boolean;
-}
-
-const parse = parseDiff as unknown as (input: string) => RawFile[];
-
-// ---------------------------------------------------------------------------
 // Unified diff text -> DiffFile[]
 // ---------------------------------------------------------------------------
 
@@ -47,7 +14,7 @@ export function parseGitDiff(diffText: string): DiffFile[] {
     binaryPaths.add(match[1]!);
   }
 
-  return parse(diffText).map((raw): DiffFile => {
+  return parseDiff(diffText).map((raw): DiffFile => {
     const oldPath = !raw.from || raw.from === "/dev/null" ? null : raw.from;
     const newPath = !raw.to || raw.to === "/dev/null" ? null : raw.to;
 
@@ -145,8 +112,9 @@ export function buildUntrackedBinaryFile(path: string): DiffFile {
 
 /**
  * Reconciles stored comment anchors against the current diff. Anchoring is
- * content-aware:
+ * review-scoped and content-aware:
  *
+ * - Missing/different review membership → historical; never re-anchor.
  * - Anchor line present at the same position with identical content → kept.
  * - Line moved, or content at the anchor changed but the original content
  *   exists elsewhere on the same side → re-anchored to the nearest match.
@@ -155,8 +123,12 @@ export function buildUntrackedBinaryFile(path: string): DiffFile {
  *
  * Pure: returns new comment objects; the caller persists re-anchored lines.
  */
-export function resolveAnchors(files: DiffFile[], comments: Comment[]): Comment[] {
-  return comments.map((comment) => {
+export function resolveAnchors(files: DiffFile[], comments: Comment[], reviewId: string): Comment[] {
+  return comments.map((stored) => {
+    if (!stored.reviewId || stored.reviewId !== reviewId) {
+      return { ...stored, historical: true, outdated: true };
+    }
+    const comment = { ...stored, historical: false };
     const file = files.find((f) => diffFilePath(f) === comment.file);
     if (!file) return { ...comment, outdated: true };
 

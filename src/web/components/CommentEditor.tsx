@@ -35,7 +35,7 @@ export function CommentEditor({ onSubmit, onCancel }: CommentEditorProps) {
         ref={areaRef}
         value={body}
         onValueChange={setBody}
-        placeholder="Leave a review comment… (⌘/Ctrl+Enter to submit)"
+        placeholder="Leave a review comment… (Markdown supported · ⌘/Ctrl+Enter to submit)"
         autoResize
         minRows={2}
         maxRows={12}

@@ -13,7 +13,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
-import type { Comment, CommentAuthor, CommentSide, CommentStatus } from "../shared/types";
+import type { Comment, CommentAuthor, CommentContext, CommentSide, CommentStatus } from "../shared/types";
+import { AuthorSchema, CommentContextSchema, SideSchema, StatusSchema } from "./api-schemas";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS comments (
@@ -30,48 +31,76 @@ CREATE TABLE IF NOT EXISTS comments (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_status ON comments(status);
+CREATE TABLE IF NOT EXISTS current_review (
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  id TEXT NOT NULL,
+  head TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reviews (
+  id TEXT PRIMARY KEY,
+  head TEXT NOT NULL
+);
+INSERT OR IGNORE INTO reviews (id, head) SELECT id, head FROM current_review;
 `;
 
-interface CommentRow {
-  id: string;
-  file: string;
-  side: string;
-  line: number;
-  line_text: string;
-  body: string;
-  author: string;
-  status: string;
-  note: string | null;
-  created_at: number;
-  updated_at: number;
-}
+const CommentRowSchema = Schema.Struct({
+  id: Schema.String,
+  review_id: Schema.NullOr(Schema.String),
+  review_head: Schema.NullOr(Schema.String),
+  file: Schema.String,
+  side: SideSchema,
+  line: Schema.Number,
+  line_text: Schema.String,
+  context: Schema.NullOr(Schema.fromJsonString(CommentContextSchema)),
+  body: Schema.String,
+  author: AuthorSchema,
+  status: StatusSchema,
+  note: Schema.NullOr(Schema.String),
+  created_at: Schema.Number,
+  updated_at: Schema.Number
+});
 
-function rowToComment(row: CommentRow): Comment {
-  return {
+const decodeCommentRows = Schema.decodeUnknownSync(Schema.Array(CommentRowSchema));
+const decodeCommentRow = Schema.decodeUnknownSync(Schema.UndefinedOr(CommentRowSchema));
+const decodeCurrentReview = Schema.decodeUnknownSync(Schema.UndefinedOr(Schema.Struct({
+  id: Schema.String,
+  head: Schema.String
+})));
+
+function rowToComment(row: typeof CommentRowSchema.Type): Comment {
+  const comment: Comment = {
     id: row.id,
     file: row.file,
-    side: row.side as CommentSide,
+    side: row.side,
     line: row.line,
     lineText: row.line_text,
     body: row.body,
-    author: row.author as CommentAuthor,
-    status: row.status as CommentStatus,
-    ...(row.note !== null ? { note: row.note } : {}),
+    author: row.author,
+    status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+  if (row.review_id !== null) comment.reviewId = row.review_id;
+  if (row.review_head !== null) comment.reviewHead = row.review_head;
+  if (row.context !== null) comment.context = row.context;
+  if (row.note !== null) comment.note = row.note;
+  return comment;
 }
 
 export interface CreateCommentInput {
+  reviewId?: string;
   file: string;
   side: CommentSide;
   line: number;
   lineText: string;
   body: string;
   author: CommentAuthor;
+  context?: CommentContext;
 }
 
 export interface UpdateCommentInput {
+  reviewId?: string;
+  context?: CommentContext;
   status?: CommentStatus;
   note?: string;
   body?: string;
@@ -93,6 +122,13 @@ function openDatabaseSync(dbPath: string): DatabaseSync {
   }
   const db = new DatabaseSync(dbPath);
   db.exec(SCHEMA);
+  const columns = db.prepare("PRAGMA table_info(comments)").all();
+  if (!columns.some((column) => column.name === "context")) {
+    db.exec("ALTER TABLE comments ADD COLUMN context TEXT");
+  }
+  if (!columns.some((column) => column.name === "review_id")) {
+    db.exec("ALTER TABLE comments ADD COLUMN review_id TEXT");
+  }
   return db;
 }
 
@@ -109,25 +145,27 @@ function listComments(db: DatabaseSync, filter: CommentFilter = {}): Comment[] {
   }
   const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
   const rows = db
-    .prepare(`SELECT * FROM comments${where} ORDER BY created_at ASC`)
-    .all(...params) as unknown as CommentRow[];
-  return rows.map(rowToComment);
+    .prepare(`SELECT comments.*, reviews.head AS review_head FROM comments
+      LEFT JOIN reviews ON reviews.id = comments.review_id${where} ORDER BY created_at ASC`)
+    .all(...params);
+  return decodeCommentRows(rows).map(rowToComment);
 }
 
 function getComment(db: DatabaseSync, id: string): Comment | null {
-  const row = db.prepare("SELECT * FROM comments WHERE id = ?").get(id) as unknown as
-    | CommentRow
-    | undefined;
-  return row ? rowToComment(row) : null;
+  const row = db.prepare(`SELECT comments.*, reviews.head AS review_head FROM comments
+    LEFT JOIN reviews ON reviews.id = comments.review_id WHERE comments.id = ?`).get(id);
+  const commentRow = decodeCommentRow(row);
+  return commentRow ? rowToComment(commentRow) : null;
 }
 
 function insertComment(db: DatabaseSync, input: CreateCommentInput): Comment {
   const now = Date.now();
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO comments (id, file, side, line, line_text, body, author, status, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, ?, ?)`,
-  ).run(id, input.file, input.side, input.line, input.lineText, input.body, input.author, now, now);
+    `INSERT INTO comments (id, file, side, line, line_text, body, author, status, note, created_at, updated_at, context, review_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, ?, ?, ?, ?)`,
+  ).run(id, input.file, input.side, input.line, input.lineText, input.body, input.author, now, now,
+    input.context ? JSON.stringify(input.context) : null, input.reviewId ?? null);
   return getComment(db, id)!;
 }
 
@@ -137,6 +175,14 @@ function updateComment(db: DatabaseSync, id: string, patch: UpdateCommentInput):
 
   const sets: string[] = [];
   const params: (string | number)[] = [];
+  if (patch.reviewId !== undefined) {
+    sets.push("review_id = ?");
+    params.push(patch.reviewId);
+  }
+  if (patch.context !== undefined) {
+    sets.push("context = ?");
+    params.push(JSON.stringify(patch.context));
+  }
   if (patch.status !== undefined) {
     sets.push("status = ?");
     params.push(patch.status);
@@ -166,16 +212,29 @@ function removeComment(db: DatabaseSync, id: string): boolean {
   return Number(result.changes) > 0;
 }
 
+/** A HEAD transition ends the previous review, even when returning to an older HEAD. */
+function currentReview(db: DatabaseSync, head: string): string {
+  const current = decodeCurrentReview(
+    db.prepare("SELECT id, head FROM current_review WHERE singleton = 1").get()
+  );
+  if (current?.head === head) return current.id;
+  const id = randomUUID();
+  db.prepare("INSERT INTO reviews (id, head) VALUES (?, ?)").run(id, head);
+  db.prepare("INSERT OR REPLACE INTO current_review (singleton, id, head) VALUES (1, ?, ?)").run(id, head);
+  return id;
+}
+
 // ---------------------------------------------------------------------------
 // Effect service
 // ---------------------------------------------------------------------------
 
 export class StoreError extends Schema.TaggedError<StoreError>()("StoreError", {
-  op: Schema.Literals(["open", "list", "get", "create", "update", "remove"]),
+  op: Schema.Literals(["open", "list", "get", "create", "update", "remove", "review"]),
   cause: Schema.Defect()
 }) {}
 
 export class CommentStore extends Context.Service<CommentStore, {
+  currentReview(head: string): Effect.Effect<string, StoreError>;
   list(filter?: CommentFilter): Effect.Effect<Array<Comment>, StoreError>;
   get(id: string): Effect.Effect<Comment | null, StoreError>;
   create(input: CreateCommentInput): Effect.Effect<Comment, StoreError>;
@@ -208,6 +267,10 @@ export class CommentStore extends Context.Service<CommentStore, {
         );
 
         return CommentStore.of({
+          currentReview: (head) => Effect.try({
+            try: () => currentReview(db, head),
+            catch: (cause) => new StoreError({ op: "review", cause })
+          }),
           list: (filter = {}) =>
             Effect.try({
               try: () => listComments(db, filter),

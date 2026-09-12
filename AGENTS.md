@@ -20,6 +20,7 @@ pnpm build        # build web + bundle server + MCP (output in dist/)
 pnpm start        # run the bundled server
 pnpm test         # vitest run (suite in src/**/*.test.ts)
 pnpm typecheck    # tsc --noEmit
+pnpm lint         # Oxlint + local anti-slop rules
 ```
 
 Global install for local CLI use:
@@ -50,7 +51,9 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
     (`Layer.effect` / `Layer.acquireRelease` for scoped resources).
   - `Layer.mergeAll` collapses service outputs — compose services with
     `Layer.merge`; `Layer.provide([array])` does not resolve requirements
-    between array members (pre-compose, e.g. `Watcher.layer.pipe(Layer.provide(Git.layer))`).
+    between array members. Watcher requires Git and CommentStore; use
+    `Layer.provideMerge(core)` with a shared core layer so the watcher and
+    HTTP handlers use the same single-writer store.
   - Handlers that must render their own errors use `handleRaw`; declared
     HttpApi payloads render an empty 400 on decode failure.
   - Error payloads are TaggedError classes — same-shaped plain structs are
@@ -59,6 +62,16 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
 - UI and MCP are **read-only consumers** of the server. The server is the only
   writer to the comment store.
 - UI receives invalidation events via SSE and refetches `/api/diff` + `/api/comments`.
+- The Changes sidebar uses `web/file-tree.ts` to group canonical diff paths into
+  a folders-first tree. Folders start expanded; collapsed directory state lives
+  in App so it survives view switches and refreshes. The collapsed sidebar rail
+  keeps direct file shortcuts.
+- The sidebar's right-edge `Sidebar.ResizeHandle` uses Kumo's built-in resizing
+  (200–600px). App persists its width under `diffreview-sidebar-width` in localStorage.
+- Comments → By file reuses `FileList` and the path-based tree builder. Its files
+  and badges come from the status-filtered comment groups, including historical
+  files. Selecting a file expands and scrolls to its group. Sidebar width/open
+  state is shared with Changes; selection and directory collapse state are separate.
 - MCP discovers the running server by hashing the repo root and reading the
   matching session file.
 
@@ -75,7 +88,7 @@ src/
     git.ts          # Git service (+ standalone getRepoRoot for cli/mcp)
     diff.ts         # parse-diff wrapper + untracked synthesis + anchor resolution
     store.ts        # CommentStore service (node:sqlite via sync core fns)
-    watcher.ts      # Watcher service (poll fiber + change PubSub)
+    watcher.ts      # Watcher service (poll fiber + change PubSub + review snapshots)
     session.ts      # Session service (+ free fns used by the MCP client)
     config.ts       # ServerConfig service
     paths.ts        # ~/.local/share/diff-review paths
@@ -98,15 +111,54 @@ src/
 - Server-side Effect Schema contracts live in `src/server/api-schemas.ts`;
   they must stay shape-compatible with `shared/types.ts` (asserted by
   `api-schemas.test.ts`).
+- UI and MCP validate HTTP responses with Zod schemas in
+  `src/shared/response-schemas.ts`. Keep these aligned with the shared types
+  and server response schemas when changing contracts.
+
+### Lint
+
+- `pnpm lint` runs Oxlint and the local plugin in `tools/oxlint/anti-slop/`.
+- The symbol-name rule excludes JSX attribute names so component APIs such
+  as Kumo's `shape` prop remain usable. Preserve this adjustment when updating
+  the vendored plugin.
 
 ### Comment anchoring rule
 
 - Comments are anchored by `(file, side, line, lineText)`.
+- Anchoring is scoped by `reviewId`. The store's singleton `current_review`
+  persists `(id, head)`; every observed HEAD change creates a fresh ID, including
+  when returning to a previously seen HEAD. Watcher exposes files, HEAD, and
+  review ID as one snapshot. An unborn HEAD uses the empty string.
+- `reviews` retains each review's base HEAD. Comments expose it as `reviewHead`
+  for short-hash pills. Migration recovers the known `current_review` mapping;
+  older reviews without metadata keep an absent hash rather than guessing.
+- Legacy comments have a NULL `review_id` and stay unscoped. Missing/different
+  review IDs produce `historical: true` and are excluded from Changes (including
+  sidebar counts), regardless of matching code or open/addressed status.
+- PATCH `{ carryForward: true }` explicitly moves a comment into the current
+  review without changing status. Matching anchors get updated line/context;
+  missing anchors retain their saved code and remain outdated. Reopen/resolve
+  alone never changes review membership. Stale UI submissions include an expected
+  review ID and are rejected when the review has ended.
 - `resolveAnchors()` is the single source of truth. An anchor is valid only if
   the line number and the content both match. If only content matches, the
   stored line number is updated to the new location (`outdated: false`).
 - If neither matches, the comment is returned as `outdated: true` and grouped in
   the UI.
+- The Comments view lists reviews independently of the current diff, including
+  committed files. `comment-context.ts` captures a bounded excerpt on the
+  commented side; the store persists it in the nullable `context` JSON column
+  (migrated automatically). Saved excerpt line numbers do not change when the
+  live anchor moves. Legacy comments without a snapshot can receive a matching
+  HEAD excerpt at read time, falling back to `lineText` in the UI. Committed
+  file reads use a bounded cache keyed by commit hash and file path. Successful
+  reads expire after five minutes; failures retry after five seconds. Recovered
+  HEAD context remains read-time data, not a persisted snapshot.
+- Comments default to a flat list sorted by most recent creation time. The
+  By file / List toggle switches between collapsible file groups and global
+  chronological order. File groups follow their first visible comment in that
+  order; filtering happens before sorting. Grouping, sort, and collapsed
+  file-group state live in App so switching views preserves them.
 
 ### Kumo / Tailwind
 

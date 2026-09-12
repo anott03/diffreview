@@ -7,7 +7,7 @@ const STORAGE_KEY = "diffreview-theme";
 type Theme = "light" | "dark";
 
 function readInitialTheme(): Theme {
-  const stored = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+  const stored = globalThis.localStorage?.getItem(STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
   return document.documentElement.dataset.mode === "light" ? "light" : "dark";
 }

@@ -61,12 +61,22 @@ export const DiffFileSchema = Schema.Struct({
 // Comment model
 // ---------------------------------------------------------------------------
 
+export const CommentContextSchema = Schema.Struct({
+  source: Schema.Literals(["snapshot", "head"]),
+  line: Schema.Number,
+  lines: ArrayOf(Schema.Struct({ line: Schema.Number, content: Schema.String }))
+});
+
 export const CommentSchema = Schema.Struct({
   id: Schema.String,
+  reviewId: Schema.optionalKey(Schema.String),
+  reviewHead: Schema.optionalKey(Schema.String),
+  historical: Schema.optionalKey(Schema.Boolean),
   file: Schema.String,
   side: SideSchema,
   line: Schema.Number,
   lineText: Schema.String,
+  context: Schema.optionalKey(CommentContextSchema),
   body: Schema.String,
   author: AuthorSchema,
   status: StatusSchema,
@@ -81,6 +91,7 @@ export const CommentSchema = Schema.Struct({
 // ---------------------------------------------------------------------------
 
 export const CreateCommentRequestSchema = Schema.Struct({
+  reviewId: Schema.optionalKey(Schema.NonEmptyString),
   file: Schema.NonEmptyString,
   side: SideSchema,
   line: PositiveIntSchema,
@@ -91,7 +102,8 @@ export const CreateCommentRequestSchema = Schema.Struct({
 export const UpdateCommentRequestSchema = Schema.Struct({
   status: Schema.optionalKey(StatusSchema),
   note: Schema.optionalKey(Schema.String),
-  body: Schema.optionalKey(Schema.NonEmptyString)
+  body: Schema.optionalKey(Schema.NonEmptyString),
+  carryForward: Schema.optionalKey(Schema.Literals([true]))
 }).pipe(
   Schema.check(
     Schema.makeFilter((v) => Object.values(v).some((x) => x !== undefined), {
@@ -114,7 +126,8 @@ export const MetaSchema = Schema.Struct({
 });
 
 export const GetDiffResponseSchema = Schema.Struct({
-  files: ArrayOf(DiffFileSchema)
+  files: ArrayOf(DiffFileSchema),
+  reviewId: Schema.String
 });
 
 export const ListCommentsResponseSchema = Schema.Struct({

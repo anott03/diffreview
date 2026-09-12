@@ -10,12 +10,12 @@ import { anchorKey, SplitDiffTable, UnifiedDiffTable, type EditingAnchor } from 
 
 export type Layout = "unified" | "split";
 
-const STATUS_BADGE: Record<DiffFile["status"], { variant: "success" | "error" | "warning" | "info"; label: string }> = {
+const STATUS_BADGE = {
   added: { variant: "success", label: "added" },
   deleted: { variant: "error", label: "deleted" },
   modified: { variant: "warning", label: "modified" },
   renamed: { variant: "info", label: "renamed" },
-};
+} satisfies Record<DiffFile["status"], { variant: "success" | "error" | "warning" | "info"; label: string }>;
 
 interface DiffViewProps {
   file: DiffFile;
@@ -24,6 +24,7 @@ interface DiffViewProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onSubmitComment: (input: CreateCommentRequest) => Promise<void>;
+  onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -35,6 +36,7 @@ export function DiffView({
   collapsed,
   onToggleCollapse,
   onSubmitComment,
+  onResolve,
   onReopen,
   onDelete,
 }: DiffViewProps) {
@@ -73,6 +75,7 @@ export function DiffView({
     onStartComment: setEditing,
     onCancelComment: () => setEditing(null),
     onSubmitComment: submit,
+    onResolve,
     onReopen,
     onDelete,
   };
@@ -111,14 +114,16 @@ export function DiffView({
         {outdated.length > 0 && (
           <details className="border-b border-kumo-line">
             <summary className="cursor-pointer px-4 py-2 text-xs text-kumo-subtle select-none">
-              {outdated.length} outdated comment{outdated.length === 1 ? "" : "s"} (anchored to code
-              that has since changed)
+              {outdated.length} comment{outdated.length === 1 ? "" : "s"} outside the current diff
+              {" "}(code changed or committed)
             </summary>
             <div className="flex flex-col gap-px pb-px">
               {outdated.map((comment) => (
                 <CommentThread
                   key={comment.id}
                   comment={comment}
+                  showContext
+                  onResolve={onResolve}
                   onReopen={onReopen}
                   onDelete={onDelete}
                 />

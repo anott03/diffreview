@@ -67,7 +67,8 @@ export class ApiGroup extends HttpApiGroup.make("api")
   )
   .add(
     HttpApiEndpoint.get("diff", "/diff", {
-      success: S.GetDiffResponseSchema
+      success: S.GetDiffResponseSchema,
+      error: InternalErrorSchema
     })
   )
   .add(

@@ -35,6 +35,7 @@ export class NotARepoError extends Schema.TaggedError<NotARepoError>()("NotARepo
 
 interface RawState {
   hash: string;
+  head: string;
   diffText: string;
   untrackedPaths: string[];
 }
@@ -55,9 +56,9 @@ export class Git extends Context.Service<Git, {
   collectState(root: string): Effect.Effect<RawState, GitError>;
   getDiffFiles(root: string): Effect.Effect<Array<DiffFile>, GitError>;
 }>()("diffreview/server/Git") {
-  static readonly layer = Layer.effect(
+  static readonly layer = Layer.sync(
     Git,
-    Effect.gen(function*() {
+    () => {
       const run = Effect.fn("Git.run")(function*(root: string, args: string[]) {
         return yield* Effect.tryPromise({
           try: () =>
@@ -210,9 +211,9 @@ export class Git extends Context.Service<Git, {
        * untracked file stats (mtime+size — untracked content isn't in the diff).
        */
       const collectState = Effect.fn("Git.collectState")(function*(root: string) {
-        const [headSha, status, diffText, untrackedPaths] = yield* Effect.all(
+        const headSha = yield* getHeadSha(root);
+        const [status, diffText, untrackedPaths] = yield* Effect.all(
           [
-            getHeadSha(root),
             run(root, ["status", "--porcelain=v1"]),
             trackedDiffText(root),
             listUntracked(root)
@@ -231,6 +232,7 @@ export class Git extends Context.Service<Git, {
         }
 
         return {
+          head: headSha,
           hash: createHash("sha1").update(parts.join("\0")).digest("hex"),
           diffText,
           untrackedPaths
@@ -248,7 +250,7 @@ export class Git extends Context.Service<Git, {
         collectState,
         getDiffFiles
       });
-    })
+    }
   );
 }
 

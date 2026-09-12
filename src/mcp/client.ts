@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { MetaSchema } from "../shared/response-schemas";
+import type { UpdateCommentRequest } from "../shared/types";
 import { getRepoRoot } from "../server/git";
 import { readSession } from "../server/session";
 
@@ -13,8 +16,7 @@ function pidAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (err) {
-    // EPERM means the process exists but we can't signal it.
-    return (err as NodeJS.ErrnoException).code === "EPERM";
+    return z.object({ code: z.literal("EPERM") }).safeParse(err).success;
   }
 }
 
@@ -49,7 +51,7 @@ export async function resolveClient(cwd: string = process.cwd()): Promise<Resolv
   try {
     const res = await fetch(`${baseUrl}/api/meta`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const meta = (await res.json()) as { repoRoot?: string };
+    const meta = MetaSchema.parse(await res.json());
     if (meta.repoRoot !== repoRoot) {
       return {
         ok: false,
@@ -66,14 +68,19 @@ export async function resolveClient(cwd: string = process.cwd()): Promise<Resolv
   return { ok: true, client: { baseUrl, repoRoot } };
 }
 
-export async function apiGet<T>(client: ResolvedClient, path: string): Promise<T> {
+export async function apiGet<T>(client: ResolvedClient, path: string, schema: z.ZodType<T>): Promise<T> {
   const res = await fetch(`${client.baseUrl}${path}`, { signal: AbortSignal.timeout(5000) });
   if (!res.ok) throw new Error(`GET ${path} failed: HTTP ${res.status}`);
-  return (await res.json()) as T;
+  return schema.parse(await res.json());
 }
 
 /** Returns null on 404, throws on other failures. */
-export async function apiPatch<T>(client: ResolvedClient, path: string, body: unknown): Promise<T | null> {
+export async function apiPatch<T>(
+  client: ResolvedClient,
+  path: string,
+  body: UpdateCommentRequest,
+  schema: z.ZodType<T>,
+): Promise<T | null> {
   const res = await fetch(`${client.baseUrl}${path}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
@@ -82,5 +89,5 @@ export async function apiPatch<T>(client: ResolvedClient, path: string, body: un
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`PATCH ${path} failed: HTTP ${res.status}`);
-  return (await res.json()) as T;
+  return schema.parse(await res.json());
 }

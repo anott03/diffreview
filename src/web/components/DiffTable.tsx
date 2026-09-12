@@ -22,6 +22,7 @@ interface DiffTableProps {
   onStartComment: (anchor: EditingAnchor) => void;
   onCancelComment: () => void;
   onSubmitComment: (body: string) => Promise<void>;
+  onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -49,20 +50,20 @@ function LineNo({ value }: { value?: number }) {
   );
 }
 
-interface UnderRowProps extends Pick<DiffTableProps, "editing" | "onCancelComment" | "onSubmitComment" | "onReopen" | "onDelete"> {
+interface UnderRowProps extends Pick<DiffTableProps, "editing" | "onCancelComment" | "onSubmitComment" | "onResolve" | "onReopen" | "onDelete"> {
   anchor: EditingAnchor;
   comments: Comment[];
 }
 
 /** Comment threads and/or the editor rendered beneath a diff row. */
-function UnderRow({ anchor, comments, editing, onCancelComment, onSubmitComment, onReopen, onDelete }: UnderRowProps) {
+function UnderRow({ anchor, comments, editing, onCancelComment, onSubmitComment, onResolve, onReopen, onDelete }: UnderRowProps) {
   const isEditing =
     editing !== null && editing.side === anchor.side && editing.line === anchor.line;
   if (comments.length === 0 && !isEditing) return null;
   return (
     <div className="flex flex-col gap-px border-y border-kumo-line bg-kumo-base py-px">
       {comments.map((comment) => (
-        <CommentThread key={comment.id} comment={comment} onReopen={onReopen} onDelete={onDelete} />
+        <CommentThread key={comment.id} comment={comment} onResolve={onResolve} onReopen={onReopen} onDelete={onDelete} />
       ))}
       {isEditing && <CommentEditor onSubmit={onSubmitComment} onCancel={onCancelComment} />}
     </div>
@@ -114,6 +115,7 @@ export function UnifiedDiffTable(props: DiffTableProps) {
                   editing={props.editing}
                   onCancelComment={props.onCancelComment}
                   onSubmitComment={props.onSubmitComment}
+                  onResolve={props.onResolve}
                   onReopen={props.onReopen}
                   onDelete={props.onDelete}
                 />
@@ -223,6 +225,7 @@ export function SplitDiffTable(props: DiffTableProps) {
                     editing={props.editing}
                     onCancelComment={props.onCancelComment}
                     onSubmitComment={props.onSubmitComment}
+                    onResolve={props.onResolve}
                     onReopen={props.onReopen}
                     onDelete={props.onDelete}
                   />
@@ -234,6 +237,7 @@ export function SplitDiffTable(props: DiffTableProps) {
                     editing={props.editing}
                     onCancelComment={props.onCancelComment}
                     onSubmitComment={props.onSubmitComment}
+                    onResolve={props.onResolve}
                     onReopen={props.onReopen}
                     onDelete={props.onDelete}
                   />

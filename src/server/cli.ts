@@ -10,6 +10,7 @@ import { findWebRoot, serverLayer } from "./http";
 import { dbPathForRepo } from "./paths";
 import { Session } from "./session";
 import { ServerConfig } from "./config";
+import { errMessage } from "./error-message";
 
 const USAGE = `Usage: diffreview [repoPath] [options]
 
@@ -30,16 +31,6 @@ function fail(message: string): never {
   console.error(`diffreview: ${message}`);
   process.exit(1);
 }
-
-const errMessage = (e: unknown): string => {
-  if (e instanceof Error && e.message) return e.message;
-  if (typeof e === "object" && e !== null) {
-    const anyErr = e as { message?: unknown; cause?: unknown };
-    if (typeof anyErr.message === "string" && anyErr.message) return anyErr.message;
-    if (anyErr.cause instanceof Error && anyErr.cause.message) return anyErr.cause.message;
-  }
-  return "internal error";
-};
 
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
@@ -68,7 +59,7 @@ async function main(): Promise<void> {
   try {
     repoRoot = await getRepoRoot(target);
   } catch (err) {
-    fail((err as Error).message);
+    fail(errMessage(err));
   }
 
   const webRoot = findWebRoot();

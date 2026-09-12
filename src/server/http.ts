@@ -13,35 +13,26 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, Layer, Schedule, Schema, Stream } from "effect";
+import { Cache, Effect, Exit, Layer, Schedule, Schema, Stream, flow } from "effect";
 import { NodeFileSystem, NodeHttpServer, NodePath } from "@effect/platform-node";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/unstable/http";
-import type { CommentStatus, SseEventType } from "../shared/types";
 import { resolveAnchors } from "./diff";
+import { contextFromDiff, contextFromHead } from "./comment-context";
 import * as S from "./api-schemas";
 import { Api, BadRequestError, InternalError, NotFoundError } from "./api";
-import { CommentStore } from "./store";
+import { CommentStore, type CommentFilter, type CreateCommentInput, type UpdateCommentInput } from "./store";
 import { Git } from "./git";
 import { Watcher } from "./watcher";
 import { Session } from "./session";
 import { ServerConfig } from "./config";
+import { errMessage } from "./error-message";
 
 // ---------------------------------------------------------------------------
 // Error mapping — `{ error: message }` bodies, matching the legacy onError
 // ---------------------------------------------------------------------------
 
-const errMessage = (e: unknown): string => {
-  if (e instanceof Error && e.message) return e.message;
-  if (typeof e === "object" && e !== null) {
-    const anyErr = e as { message?: unknown; cause?: unknown };
-    if (typeof anyErr.message === "string" && anyErr.message) return anyErr.message;
-    if (anyErr.cause instanceof Error && anyErr.cause.message) return anyErr.cause.message;
-  }
-  return "internal error";
-};
-
-const toError = (e: unknown) => Effect.fail(new InternalError({ error: errMessage(e) }));
+const toError = flow(errMessage, (error) => Effect.fail(new InternalError({ error })));
 
 /**
  * Manual JSON body decode for raw handlers: parse failures and schema
@@ -51,7 +42,7 @@ const toError = (e: unknown) => Effect.fail(new InternalError({ error: errMessag
  */
 const parseBody = <A, I, R>(schema: Schema.Codec<A, I, R>) =>
   Effect.gen(function*() {
-    const toBadRequest = (e: unknown) => Effect.fail(new BadRequestError({ error: errMessage(e) }));
+    const toBadRequest = flow(errMessage, (error) => Effect.fail(new BadRequestError({ error })));
     const input = yield* Effect.catch(HttpServerRequest.schemaBodyJson(Schema.Unknown), toBadRequest);
     return yield* Effect.catch(Schema.decodeUnknownEffect(schema)(input), toBadRequest);
   });
@@ -68,6 +59,13 @@ export const ApiHandlers = HttpApiBuilder.group(
   const watcher = yield* Watcher;
   const store = yield* CommentStore;
   const config = yield* ServerConfig;
+  const committedFiles = yield* Cache.makeWith(
+    (revisionPath: string) => git.run(config.repoRoot, ["show", revisionPath]),
+    {
+      capacity: 128,
+      timeToLive: (exit) => Exit.isSuccess(exit) ? "5 minutes" : "5 seconds"
+    }
+  );
 
   return handlers
     .handle("meta", () =>
@@ -75,10 +73,13 @@ export const ApiHandlers = HttpApiBuilder.group(
         const files = yield* watcher.files;
         return yield* Effect.catch(git.getMeta(config.repoRoot, files), toError);
       }))
-    .handle("diff", () => Effect.map(watcher.files, (files) => ({ files })))
+    .handle("diff", () => watcher.snapshot.pipe(
+      Effect.map(({ files, reviewId }) => ({ files, reviewId })),
+      Effect.catch(toError)
+    ))
     .handle("listComments", ({ query }) =>
       Effect.gen(function*() {
-        const filter: { status?: CommentStatus; file?: string } = {};
+        const filter: CommentFilter = {};
         if (query.status && query.status !== "all") {
           if (query.status !== "open" && query.status !== "addressed") {
             return yield* Effect.fail(
@@ -90,7 +91,8 @@ export const ApiHandlers = HttpApiBuilder.group(
         if (query.file) filter.file = query.file;
 
         const stored = yield* Effect.catch(store.list(filter), toError);
-        const resolved = resolveAnchors(yield* watcher.files, stored);
+        const { files, reviewId, head } = yield* Effect.catch(watcher.snapshot, toError);
+        const resolved = resolveAnchors(files, stored, reviewId);
 
         // Persist re-anchored line numbers so anchors converge over time.
         for (let i = 0; i < resolved.length; i++) {
@@ -99,6 +101,19 @@ export const ApiHandlers = HttpApiBuilder.group(
           if (!r.outdated && r.line !== o.line) {
             yield* Effect.catch(store.update(o.id, { line: r.line }), toError);
           }
+          if (!r.context) {
+            const snapshot = r.historical ? undefined : contextFromDiff(files, r);
+            if (snapshot) {
+              r.context = snapshot;
+              yield* Effect.catch(store.update(o.id, { context: snapshot }), toError);
+            } else {
+              const text = head ? yield* Cache.get(committedFiles, `${head}:${r.file}`).pipe(
+                Effect.catch(() => Effect.succeed(null))
+              ) : null;
+              const context = text == null ? undefined : contextFromHead(text, r);
+              if (context) r.context = context;
+            }
+          }
         }
 
         return { comments: resolved };
@@ -106,14 +121,38 @@ export const ApiHandlers = HttpApiBuilder.group(
     .handleRaw("createComment", () =>
       Effect.gen(function*() {
         const input = yield* parseBody(S.CreateCommentRequestSchema);
-        const comment = yield* Effect.catch(store.create({ ...input, author: "user" }), toError);
+        yield* Effect.catch(watcher.refresh(), toError);
+        const { files, reviewId } = yield* Effect.catch(watcher.snapshot, toError);
+        if (input.reviewId !== undefined && input.reviewId !== reviewId) {
+          return yield* Effect.fail(new BadRequestError({
+            error: "This review ended after HEAD changed. Refresh the diff before adding a comment."
+          }));
+        }
+        const context = contextFromDiff(files, input);
+        const creation: CreateCommentInput = { ...input, reviewId, author: "user" };
+        if (context) creation.context = context;
+        const comment = yield* Effect.catch(store.create(creation), toError);
         yield* watcher.publish({ type: "comments", at: Date.now() });
         return comment;
       }))
     .handleRaw("updateComment", ({ params }) =>
       Effect.gen(function*() {
-        const patch = yield* parseBody(S.UpdateCommentRequestSchema);
-        const updated = yield* Effect.catch(store.update(params.id, patch), toError);
+        const { carryForward, ...patch } = yield* parseBody(S.UpdateCommentRequestSchema);
+        const update: UpdateCommentInput = { ...patch };
+        if (carryForward) {
+          const existing = yield* Effect.catch(store.get(params.id), toError);
+          if (!existing) return yield* Effect.fail(new NotFoundError({ error: "comment not found" }));
+          yield* Effect.catch(watcher.refresh(), toError);
+          const { files, reviewId } = yield* Effect.catch(watcher.snapshot, toError);
+          update.reviewId = reviewId;
+          const [resolved] = resolveAnchors(files, [{ ...existing, reviewId }], reviewId);
+          if (!resolved!.outdated) {
+            update.line = resolved!.line;
+            const context = contextFromDiff(files, resolved!);
+            if (context) update.context = context;
+          }
+        }
+        const updated = yield* Effect.catch(store.update(params.id, update), toError);
         if (updated === null) {
           return yield* Effect.fail(new NotFoundError({ error: "comment not found" }));
         }
@@ -132,7 +171,7 @@ export const ApiHandlers = HttpApiBuilder.group(
     .handle("events", () => {
       const events = watcher.changes.pipe(
         Stream.map(
-          (e): { id: string | undefined; event: SseEventType; data: { type: SseEventType; at: number } } => ({
+          (e) => ({
             id: undefined,
             event: e.type,
             data: { type: e.type, at: e.at }
@@ -141,7 +180,7 @@ export const ApiHandlers = HttpApiBuilder.group(
       );
       // Heartbeat: `event: ping`, data `{}` — matches the legacy 30s ping.
       const pings = Stream.fromSchedule(Schedule.spaced("30 seconds")).pipe(
-        Stream.map((): { id: string | undefined; event: string; data: {} } => ({
+        Stream.map(() => ({
           id: undefined,
           event: "ping",
           data: {}
@@ -219,16 +258,10 @@ export interface ServerOptions {
  * program can drive them (initial refresh, session bookkeeping).
  */
 export const serverLayer = (options: ServerOptions) => {
-  // Note: Layer.merge (not mergeAll — that one's for no-output layers and
-  // collapses service outputs). Watcher gets Git provided privately, so the
-  // merged layer's requirements stay empty.
-  const services = Git.layer.pipe(
-    Layer.merge(CommentStore.layer(options.dbPath)),
-    Layer.merge(
-      Watcher.layer({ root: options.repoRoot, intervalMs: options.intervalMs }).pipe(
-        Layer.provide(Git.layer)
-      )
-    ),
+  // Share the same single-writer store between the watcher and HTTP handlers.
+  const core = Git.layer.pipe(Layer.merge(CommentStore.layer(options.dbPath)));
+  const services = Watcher.layer({ root: options.repoRoot, intervalMs: options.intervalMs }).pipe(
+    Layer.provideMerge(core),
     Layer.merge(Session.layer),
     Layer.merge(
       Layer.succeed(ServerConfig, {

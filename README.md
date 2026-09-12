@@ -8,7 +8,17 @@ comments that agents can retrieve and mark as addressed via MCP.
 - **Review uncommitted changes vs HEAD** — staged, unstaged, deleted, renamed and
   untracked files all in one view.
 - **Inline comments** — click any old/new line to add a comment. Comments stay
-  anchored as you edit the code (re-anchor by content, or surface as "outdated").
+  anchored as you edit the code (re-anchor by content, or surface as outside the current diff).
+- **Comments after commits** — the Comments view lists open, addressed, or all
+  comments, even with a clean working tree. New comments retain a code excerpt;
+  older comments show matching code from HEAD or the original commented line.
+- **Review-scoped anchoring** — each HEAD change starts a new review. Previous
+  and legacy comments stay in Comments until you explicitly **Carry forward**
+  to the current review. Carry-forward preserves open/addressed status; **Resolve**
+  and **Reopen** change status without changing review membership.
+- **Browse comments** — switch between a flat chronological list and collapsible
+  file groups, sort by most recent or oldest first, and identify historical
+  reviews by their base commit's short hash.
 - **Unified or split diff** — toggle layout instantly.
 - **Agent integration via MCP** — `get_diff_summary`, `get_diff`,
   `list_review_comments`, `mark_comment_addressed`.
@@ -92,6 +102,9 @@ pnpm dev:server
 
 # Web UI only
 pnpm dev:web
+
+# Lint with Oxlint and anti-slop rules
+pnpm lint
 
 # Type check
 pnpm typecheck
