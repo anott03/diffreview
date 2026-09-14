@@ -96,7 +96,7 @@ export function CommentList({ comments, status, sort, grouping, onGroupingChange
             onToggleDirectory={onToggleDirectory}
           />
         )}
-        <main className="isolate min-w-0 flex-1 overflow-y-auto">
+        <main className="isolate min-w-0 flex-1 overflow-y-auto [overflow-anchor:none]">
           {visible.length === 0 ? (
             <p className="px-4 py-6 text-sm text-kumo-subtle">
               {status === "all" ? "No review comments yet." : `No ${status} comments.`}

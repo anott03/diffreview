@@ -17,10 +17,6 @@ export function dbPathForRepo(repoRoot: string): string {
   return join(dataDir(), `${repoHash(repoRoot)}.sqlite`);
 }
 
-export function sessionsDir(): string {
-  return join(dataDir(), "sessions");
-}
-
-export function sessionPathForRepo(repoRoot: string): string {
-  return join(sessionsDir(), `${repoHash(repoRoot)}.json`);
+export function projectCatalogPath(): string {
+  return join(dataDir(), "projects.sqlite");
 }

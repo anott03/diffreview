@@ -5,10 +5,11 @@ re-learning its architecture from scratch.
 
 ## What the project does
 
-`diffreview` is a local web app for reviewing AI-generated git diffs. A Node
-server watches the working tree, parses the diff, stores comments in SQLite, and
-serves both a REST API and a static React UI. An MCP stdio server lets agents
-(opencode) read the diff and mark comments as addressed.
+`diffreview` is a local web app for reviewing AI-generated Git diffs. One global
+Node server supports multiple working trees, each with its own SQLite comment
+store and watcher. It serves a project-scoped REST API and a tabbed React UI.
+An MCP stdio server lets agents read and address comments in their invocation
+working tree, independently of browser selection.
 
 ## Commands
 
@@ -17,7 +18,7 @@ pnpm dev          # API server (port 4777) + Vite dev UI (port 5173)
 pnpm dev:server   # API server only
 pnpm dev:web      # Vite dev UI only
 pnpm build        # build web + bundle server + MCP (output in dist/)
-pnpm start        # run the bundled server
+pnpm start        # run the bundled global server in the foreground
 pnpm test         # vitest run (suite in src/**/*.test.ts)
 pnpm typecheck    # tsc --noEmit
 pnpm lint         # Oxlint + local anti-slop rules
@@ -33,17 +34,20 @@ pnpm link --global   # provides `diffreview` and `diffreview-mcp`
 ## High-level architecture
 
 ```text
-diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
-  ├── Git service          git commands, diff collection, tagged errors
-  ├── CommentStore service SQLite at ~/.local/share/diff-review/<repo-hash>.sqlite
-  ├── Watcher service      poll fiber + change PubSub (SSE fan-out)
-  ├── Session service      ~/.local/share/diff-review/sessions/<repo-hash>.json
-  ├── HttpApi REST API     /api/{meta,diff,comments,events} (HttpApiBuilder,
-  │                        StreamSse endpoint), served over NodeHttpServer
+diffreview serve (src/server/cli.ts)       Effect v4 (pinned rc)
+  ├── ServerConfig + global discovery (server.json, lifetime SQLite lock)
+  ├── Git service          explicit working-tree root on every operation
+  ├── ProjectCatalog       projects.sqlite, canonical roots and database mappings
+  ├── ProjectRegistry      lazy runtimes in server-owned child scopes
+  │    └── Per project: CommentStore + Watcher + ProjectReview/cache
+  ├── HttpApi REST API     /api/server, /api/projects,
+  │                        /api/projects/:projectId/{meta,diff,comments}
+  ├── /api/events          multiplexed project/catalog SSE + heartbeats
   └── HttpStaticServer     dist/web assets + SPA fallback
-                                                      ▲
-                                                      │ HTTP discovery
-                                    diffreview-mcp (src/mcp/server.ts)
+
+Browser App → project tabs → mounted ProjectWorkspace(projectId)
+diffreview open [path] → discover/start → register → project URL
+MCP cwd → canonical working tree → global discovery → project-scoped HTTP
 ```
 
 - Effect composition rules:
@@ -61,7 +65,15 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
 
 - UI and MCP are **read-only consumers** of the server. The server is the only
   writer to the comment store.
-- UI receives invalidation events via SSE and refetches `/api/diff` + `/api/comments`.
+- One browser SSE connection receives `{type, projectId, at}` review invalidations
+  and `{type: "projects", at}` catalog invalidations. Active workspaces refetch;
+  inactive workspaces refresh on activation. Reconnection refreshes catalog and
+  active data. There is no server-global selected project.
+- `App` owns tabs, history, theme and shared sidebar preferences. Keep workspaces
+  keyed by project ID and mounted while inactive to preserve drafts, selections,
+  collapse state and scroll positions. Closing a tab discards only client state.
+- Web API clients are immutable project bindings. Abort obsolete reads and gate
+  toasts by active workspace. Never share addressed-comment tracking across projects.
 - The Changes sidebar uses `web/file-tree.ts` to group canonical diff paths into
   a folders-first tree. Folders start expanded; collapsed directory state lives
   in App so it survives view switches and refreshes. The collapsed sidebar rail
@@ -72,8 +84,23 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
   and badges come from the status-filtered comment groups, including historical
   files. Selecting a file expands and scrolls to its group. Sidebar width/open
   state is shared with Changes; selection and directory collapse state are separate.
-- MCP discovers the running server by hashing the repo root and reading the
-  matching session file.
+- MCP verifies the global `server.json` descriptor against `/api/server`, then
+  registers its invocation working tree. It does not auto-start the server.
+- `diffreview serve` runs foreground outside Git; `diffreview [open] [path]`
+  discovers or starts a detached server and opens the browser by default.
+  `--no-open` prints the URL. Explicit `--port` must match an existing server.
+- The launcher appends detached output to `server.log`. `server-lock.sqlite`
+  holds a lifetime exclusive transaction for single-instance startup; process
+  death releases it. The descriptor is written after HTTP readiness and cleared
+  only by its owning instance. Stop old per-repo servers before upgrading.
+- Canonical root hashes identify projects; linked worktrees stay distinct.
+  Preserve the original absolute input on CLI/MCP registration so catalog lookup
+  can find alias-hashed legacy databases. Old session metadata is used only for
+  database recovery. Ambiguous or missing known databases fail explicitly.
+- Registry initialization is deduplicated and server-owned, not request-owned.
+  Failed initialization closes partial resources and allows retry. Successful
+  runtimes stay loaded until shutdown. Catalog entries survive unavailable paths.
+  Relocation, idle eviction, and complete historical diff snapshots are deferred.
 
 ## Code layout
 
@@ -81,7 +108,7 @@ diffreview CLI (src/server/cli.ts)          Effect v4 (pinned rc)
 src/
   shared/types.ts   # Cross-process contracts (no runtime deps)
   server/
-    cli.ts          # Entry point: arg parsing, serverLayer + NodeRuntime.runMain
+    cli.ts          # serve/open commands, launcher and foreground runtime
     api.ts          # HttpApi definition (endpoints, error classes, StreamSse)
     api-schemas.ts  # Effect Schema contracts mirroring shared/types.ts
     http.ts         # HttpApiBuilder handlers, static/SSE composition, serverLayer
@@ -89,16 +116,23 @@ src/
     diff.ts         # parse-diff wrapper + untracked synthesis + anchor resolution
     store.ts        # CommentStore service (node:sqlite via sync core fns)
     watcher.ts      # Watcher service (poll fiber + change PubSub + review snapshots)
-    session.ts      # Session service (+ free fns used by the MCP client)
-    config.ts       # ServerConfig service
+    server-discovery.ts # Global descriptor, verification, lock, detached startup
+    project-path.ts # Canonical working-tree resolution
+    project-catalog.ts # Persistent project metadata and legacy database selection
+    project-registry.ts # Deduplicated lazy runtimes + multiplexed events
+    project-runtime.ts # Scoped store/watcher/review composition
+    project-review.ts # Review operations and committed-file cache
+    config.ts       # Separate ServerConfig and ProjectConfig services
     paths.ts        # ~/.local/share/diff-review paths
   web/
-    App.tsx         # Shell, SSE wiring, toasts
-    api.ts          # HTTP wrappers + useServerEvents hook
+    App.tsx         # Picker/tabs, navigation, SSE routing, shared preferences
+    ProjectWorkspace.tsx # Project-local review UI, reads, mutations and toasts
+    project-tabs.ts # Storage restoration and tab navigation helpers
+    api.ts          # Global operations, project-bound clients, one SSE hook
     *.tsx           # FileList, DiffView, DiffTable, CommentEditor, CommentThread
   mcp/
     server.ts       # MCP stdio server + 4 tools
-    client.ts       # session discovery + typed HTTP helpers
+    client.ts       # Global discovery, cwd project binding, typed HTTP helpers
     render.ts       # unified-diff text renderer for agents
 ```
 
@@ -186,7 +220,10 @@ Never add direct SQLite access from `src/web/` or `src/mcp/`.
 
 - Use `diffFilePath(file)` from `src/shared/types.ts` wherever you need a
   canonical file path for a diff entry.
-- Server stores comments keyed by this canonical path.
+- Server stores comments keyed by this canonical path within the target project.
+- Unscoped `/api/meta`, `/api/diff`, and `/api/comments` routes return 404.
+  Unknown project IDs return 404; unavailable registered projects return 503.
+  Never resolve a comment ID against another project's store.
 
 ## Common pitfalls
 

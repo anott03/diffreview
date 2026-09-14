@@ -116,6 +116,27 @@ export const UpdateCommentRequestSchema = Schema.Struct({
 // REST responses
 // ---------------------------------------------------------------------------
 
+export const ProjectSchema = Schema.Struct({
+  id: Schema.String,
+  root: Schema.String,
+  name: Schema.String,
+  openedAt: Schema.Number
+});
+
+export const ListProjectsResponseSchema = Schema.Struct({
+  projects: ArrayOf(ProjectSchema)
+});
+
+export const OpenProjectRequestSchema = Schema.Struct({ path: Schema.NonEmptyString });
+
+export const ServerInfoSchema = Schema.Struct({
+  service: Schema.Literal("diffreview"),
+  protocolVersion: Schema.Literal(1),
+  instanceId: Schema.String,
+  pid: Schema.Number,
+  startedAt: Schema.Number
+});
+
 export const MetaSchema = Schema.Struct({
   repoRoot: Schema.String,
   branch: Schema.String,
@@ -142,7 +163,11 @@ export const ApiErrorResponseSchema = Schema.Struct({
 // Server-sent events
 // ---------------------------------------------------------------------------
 
-export const SseEventSchema = Schema.Struct({
-  type: Schema.Literals(["diff", "comments"]),
-  at: Schema.Number
-});
+export const SseEventSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literals(["diff", "comments"]),
+    projectId: Schema.String,
+    at: Schema.Number
+  }),
+  Schema.Struct({ type: Schema.Literal("projects"), at: Schema.Number })
+]);

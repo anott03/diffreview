@@ -42,11 +42,6 @@ function fail(message: string): ToolTextResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
-/**
- * Shared preamble for every tool: resolve the diffreview instance for the
- * repo opencode launched us in. Returns either a client or an error result
- * to hand straight back to the agent.
- */
 async function connect(): Promise<{ client: ResolvedClient } | { error: ToolTextResult }> {
   const resolved = await resolveClient();
   return resolved.ok ? { client: resolved.client } : { error: fail(resolved.error) };
@@ -69,9 +64,9 @@ server.registerTool(
     if ("error" in conn) return conn.error;
     try {
       const [meta, diff, comments] = await Promise.all([
-        apiGet(conn.client, "/api/meta", MetaSchema),
-        apiGet(conn.client, "/api/diff", GetDiffResponseSchema),
-        apiGet(conn.client, "/api/comments?status=open", ListCommentsResponseSchema),
+        apiGet(conn.client, "/meta", MetaSchema),
+        apiGet(conn.client, "/diff", GetDiffResponseSchema),
+        apiGet(conn.client, "/comments?status=open", ListCommentsResponseSchema),
       ]);
       const openByFile = new Map<string, number>();
       const currentComments = comments.comments.filter((c) => c.reviewId === diff.reviewId && !c.historical);
@@ -126,7 +121,7 @@ server.registerTool(
     const conn = await connect();
     if ("error" in conn) return conn.error;
     try {
-      const diff = await apiGet(conn.client, "/api/diff", GetDiffResponseSchema);
+      const diff = await apiGet(conn.client, "/diff", GetDiffResponseSchema);
       let text = renderUnifiedDiff(diff.files, file);
       if (!text) {
         return fail(
@@ -170,7 +165,7 @@ server.registerTool(
     try {
       const params = new URLSearchParams({ status: status ?? "open" });
       if (file) params.set("file", file);
-      const res = await apiGet(conn.client, `/api/comments?${params}`, ListCommentsResponseSchema);
+      const res = await apiGet(conn.client, `/comments?${params}`, ListCommentsResponseSchema);
       const comments = res.comments.map((c) => {
         const comment: ReviewComment = {
           id: c.id,
@@ -215,7 +210,7 @@ server.registerTool(
     try {
       const patch: UpdateCommentRequest = { status: "addressed" };
       if (note) patch.note = note;
-      const updated = await apiPatch(conn.client, `/api/comments/${id}`, patch, CommentSchema);
+      const updated = await apiPatch(conn.client, `/comments/${encodeURIComponent(id)}`, patch, CommentSchema);
       if (!updated) {
         return fail(`Comment not found: ${id}. Call list_review_comments with status=all to see current comments.`);
       }

@@ -11,10 +11,15 @@ import type {
   GetDiffResponse,
   ListCommentsResponse,
   Meta,
+  Project,
+  ListProjectsResponse,
+  OpenProjectRequest,
+  ServerInfo,
   SseEvent,
   UpdateCommentRequest
 } from "../shared/types";
 import * as S from "./api-schemas";
+import * as Responses from "../shared/response-schemas";
 
 // ---------------------------------------------------------------------------
 // Type-level parity: each Schema's decoded type must be mutually assignable
@@ -49,11 +54,17 @@ export type _Parity = [
   ...MutuallyAssignable<SType<typeof S.CreateCommentRequestSchema>, CreateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.UpdateCommentRequestSchema>, UpdateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.MetaSchema>, Meta>,
+  ...MutuallyAssignable<SType<typeof S.ProjectSchema>, Project>,
+  ...MutuallyAssignable<SType<typeof S.ListProjectsResponseSchema>, ListProjectsResponse>,
+  ...MutuallyAssignable<SType<typeof S.OpenProjectRequestSchema>, OpenProjectRequest>,
+  ...MutuallyAssignable<SType<typeof S.ServerInfoSchema>, ServerInfo>,
   ...MutuallyAssignable<SType<typeof S.GetDiffResponseSchema>, GetDiffResponse>,
   ...MutuallyAssignable<SType<typeof S.ListCommentsResponseSchema>, ListCommentsResponse>,
   ...MutuallyAssignable<SType<typeof S.ApiErrorResponseSchema>, ApiErrorResponse>,
   ...MutuallyAssignable<SType<typeof S.SseEventSchema>, SseEvent>
 ];
+
+export type _ParityCheck = Expect<_Parity[number]>;
 
 // ---------------------------------------------------------------------------
 // Runtime behavior
@@ -191,6 +202,23 @@ describe("UpdateCommentRequestSchema", () => {
 });
 
 describe("response schemas", () => {
+  it("keeps project and server contracts aligned across Effect and Zod", () => {
+    const project: Project = { id: "root-hash", root: "/repo", name: "repo", openedAt: 123 };
+    const info: ServerInfo = { service: "diffreview", protocolVersion: 1, instanceId: "instance", pid: 42, startedAt: 123 };
+    expect(Responses.ProjectSchema.parse(Schema.encodeSync(S.ProjectSchema)(project))).toEqual(project);
+    expect(Responses.ListProjectsResponseSchema.parse(Schema.encodeSync(S.ListProjectsResponseSchema)({ projects: [project] }))).toEqual({ projects: [project] });
+    expect(Responses.ServerInfoSchema.parse(Schema.encodeSync(S.ServerInfoSchema)(info))).toEqual(info);
+    expect(() => Responses.ServerInfoSchema.parse({ ...info, protocolVersion: 2 })).toThrow();
+    expect(() => Schema.decodeUnknownSync(S.ServerInfoSchema)({ ...info, service: "other" })).toThrow();
+    for (const event of [
+      { type: "diff", projectId: project.id, at: 1 },
+      { type: "comments", projectId: project.id, at: 1 },
+      { type: "projects", at: 1 }
+    ] satisfies SseEvent[]) {
+      expect(Responses.SseEventSchema.parse(Schema.encodeSync(S.SseEventSchema)(event))).toEqual(event);
+    }
+  });
+
   it("MetaSchema matches meta shape", () => {
     const meta: Meta = {
       repoRoot: "/r",
@@ -230,7 +258,9 @@ describe("response schemas", () => {
   });
 
   it("SseEventSchema validates event frames", () => {
-    const ev: SseEvent = { type: "diff", at: 1700000000000 };
+    const ev: SseEvent = { type: "diff", projectId: "project-1", at: 1700000000000 };
     expect(Schema.decodeUnknownSync(S.SseEventSchema)(ev)).toEqual(ev);
+    expect(Schema.decodeUnknownSync(S.SseEventSchema)({ type: "projects", at: 1 })).toEqual({ type: "projects", at: 1 });
+    expect(() => Schema.decodeUnknownSync(S.SseEventSchema)({ type: "diff", at: 1 })).toThrow();
   });
 });

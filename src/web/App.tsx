@@ -1,383 +1,230 @@
-import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
-import { Loader } from "@cloudflare/kumo/components/loader";
 import { Sidebar } from "@cloudflare/kumo/components/sidebar";
-import { Tabs } from "@cloudflare/kumo/components/tabs";
-import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Comment, CommentStatus, CreateCommentRequest, DiffFile, Meta } from "../shared/types";
-import { diffFilePath } from "../shared/types";
-import { api, useServerEvents } from "./api";
-import { DiffView, type Layout } from "./components/DiffView";
-import { EmptyState } from "./components/EmptyState";
-import { FileList } from "./components/FileList";
+import { PlusIcon, XIcon } from "@phosphor-icons/react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { Project } from "../shared/types";
+import { globalApi, useServerEvents } from "./api";
+import { ProjectWorkspace } from "./ProjectWorkspace";
+import { ProjectPicker } from "./components/ProjectPicker";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { CommentList } from "./components/CommentList";
-import type { CommentGrouping, CommentSort } from "./comment-groups";
+import { activateProject, closeProject, projectFromPath, projectUrl, reconcileProjectTabs, restoreProjectTabs } from "./project-tabs";
 
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 600;
-const SIDEBAR_DEFAULT_WIDTH = 260;
+const TABS_STORAGE_KEY = "diffreview-project-tabs";
+
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function saveStorage(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Browsers can disable storage without disabling the workspace.
+  }
+}
+
+function initialSidebarWidth(): number {
+  const saved = readStorage("diffreview-sidebar-width");
+  const width = saved === null ? 260 : Number(saved);
+  return Number.isFinite(width) ? Math.min(600, Math.max(200, width)) : 260;
+}
 
 export function App() {
-  const toasts = useKumoToastManager();
-  const [meta, setMeta] = useState<Meta | null>(null);
-  const [files, setFiles] = useState<DiffFile[] | null>(null);
-  const [reviewId, setReviewId] = useState<string | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [layout, setLayout] = useState<Layout>("unified");
-  const [view, setView] = useState<"changes" | "comments">("changes");
-  const [commentStatus, setCommentStatus] = useState<CommentStatus | "all">("open");
-  const [commentSort, setCommentSort] = useState<CommentSort>("newest");
-  const [commentGrouping, setCommentGrouping] = useState<CommentGrouping>("list");
-  const [collapsedCommentPaths, setCollapsedCommentPaths] = useState<Set<string>>(new Set());
-  const [selectedCommentPath, setSelectedCommentPath] = useState<string | null>(null);
-  const [collapsedCommentDirectories, setCollapsedCommentDirectories] = useState<Set<string>>(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
-  const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    try {
-      const saved = localStorage.getItem("diffreview-sidebar-width");
-      const width = saved === null ? SIDEBAR_DEFAULT_WIDTH : Number(saved);
-      return Number.isFinite(width)
-        ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width))
-        : SIDEBAR_DEFAULT_WIDTH;
-    } catch {
-      return SIDEBAR_DEFAULT_WIDTH;
-    }
-  });
+  const [tabs, setTabs] = useState(() => restoreProjectTabs(window.location.pathname, readStorage(TABS_STORAGE_KEY)));
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const catalogRequest = useRef<AbortController | null>(null);
+  const [revisions, setRevisions] = useState<Record<string, number>>({});
+  const [connectionVersion, setConnectionVersion] = useState(0);
+  const [connection, setConnection] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    try {
-      return localStorage.getItem("diffreview-sidebar") !== "false";
-    } catch {
-      return true;
-    }
+    const saved = readStorage("diffreview-sidebar");
+    return saved === null ? window.matchMedia("(min-width: 768px)").matches : saved !== "false";
   });
-  const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const tabButtons = useRef(new Map<string | null, HTMLButtonElement>());
 
-  useEffect(() => {
+  const refreshProjects = useCallback(async () => {
+    catalogRequest.current?.abort();
+    const controller = new AbortController();
+    catalogRequest.current = controller;
     try {
-      localStorage.setItem("diffreview-sidebar", String(sidebarOpen));
-    } catch {
-      // Storage may be disabled in some contexts — ignore.
-    }
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("diffreview-sidebar-width", String(sidebarWidth));
-    } catch {
-      // Storage may be disabled in some contexts — ignore.
-    }
-  }, [sidebarWidth]);
-
-  const refreshDiff = useCallback(async () => {
-    try {
-      const [meta, diff] = await Promise.all([api.getMeta(), api.getDiff()]);
-      setMeta(meta);
-      setFiles(diff.files);
-      setReviewId(diff.reviewId);
-    } catch {
-      // Transient failure (server restarting) — the next SSE event retries.
-    }
-  }, []);
-
-  const refreshComments = useCallback(async () => {
-    try {
-      const res = await api.getComments();
-      setComments(res.comments);
-    } catch {
-      // Same as above.
+      const result = await globalApi.getProjects(controller.signal);
+      if (controller.signal.aborted) return;
+      setProjects([...result.projects].sort((a, b) => b.openedAt - a.openedAt));
+      setCatalogError(null);
+      setTabs((previous) => reconcileProjectTabs(previous, new Set(result.projects.map((project) => project.id))));
+    } catch (err) {
+      if (!controller.signal.aborted) setCatalogError(String(err));
     }
   }, []);
 
   useEffect(() => {
-    void refreshDiff();
-    void refreshComments();
-  }, [refreshDiff, refreshComments]);
+    void refreshProjects();
+    return () => catalogRequest.current?.abort();
+  }, [refreshProjects]);
 
   useServerEvents({
-    onDiff: () => {
-      void refreshDiff();
-      void refreshComments();
+    onProject: (projectId) => setRevisions((previous) => ({ ...previous, [projectId]: (previous[projectId] ?? 0) + 1 })),
+    onProjects: () => void refreshProjects(),
+    onConnect: () => {
+      setConnection("connected");
+      setConnectionVersion((version) => version + 1);
+      void refreshProjects();
     },
-    onComments: () => void refreshComments(),
+    onDisconnect: () => setConnection("disconnected"),
   });
 
-  // Toast on open → addressed transitions from either the UI or an agent.
-  const prevComments = useRef<Comment[]>([]);
   useEffect(() => {
-    const prev = prevComments.current;
-    const newlyAddressed = comments.filter(
-      (c) => c.status === "addressed" && prev.some((p) => p.id === c.id && p.status === "open"),
-    );
-    if (newlyAddressed.length > 0) {
-      toasts.add({
-        variant: "success",
-        title: `${newlyAddressed.length} comment${newlyAddressed.length === 1 ? "" : "s"} marked addressed`,
-      });
-    }
-    prevComments.current = comments;
-  }, [comments, toasts]);
-
-  const submitComment = async (input: CreateCommentRequest) => {
-    try {
-      const request = { ...input };
-      if (reviewId) request.reviewId = reviewId;
-      await api.createComment(request);
-      await refreshComments();
-    } catch (err) {
-      toasts.add({ variant: "error", title: "Failed to save comment", description: String(err) });
-      throw err;
-    }
-  };
-
-  const resolveComment = (id: string) => {
-    api
-      .updateComment(id, { status: "addressed" })
-      .then(refreshComments)
-      .catch((err) => toasts.add({ variant: "error", title: "Failed to resolve", description: String(err) }));
-  };
-
-  const carryForwardComment = (id: string) => {
-    api
-      .updateComment(id, { carryForward: true })
-      .then(async () => {
-        await Promise.all([refreshDiff(), refreshComments()]);
-        toasts.add({ variant: "success", title: "Comment carried forward to the current review" });
-      })
-      .catch((err) => toasts.add({ variant: "error", title: "Failed to carry forward", description: String(err) }));
-  };
-
-  const reopenComment = (id: string) => {
-    api
-      .updateComment(id, { status: "open" })
-      .then(refreshComments)
-      .catch((err) => toasts.add({ variant: "error", title: "Failed to reopen", description: String(err) }));
-  };
-
-  const deleteComment = (id: string) => {
-    api
-      .deleteComment(id)
-      .then(refreshComments)
-      .catch((err) => toasts.add({ variant: "error", title: "Failed to delete", description: String(err) }));
-  };
-
-  const selectFile = useCallback((path: string) => {
-    setSelectedPath(path);
-    setCollapsedPaths((prev) => {
-      if (!prev.has(path)) return prev;
-      const next = new Set(prev);
-      next.delete(path);
-      return next;
-    });
+    window.history.replaceState(null, "", projectUrl(tabsRef.current.activeId));
+    const onPopState = () => {
+      const projectId = projectFromPath(window.location.pathname);
+      setTabs((previous) => activateProject(previous, projectId));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const toggleCollapsed = useCallback((path: string) => {
-    setCollapsedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
-
-  const toggleCommentCollapsed = useCallback((path: string) => {
-    setCollapsedCommentPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
-
-  const selectCommentFile = useCallback((path: string) => {
-    setSelectedCommentPath(path);
-    setCollapsedCommentPaths((prev) => {
-      if (!prev.has(path)) return prev;
-      const next = new Set(prev);
-      next.delete(path);
-      return next;
-    });
-  }, []);
-
-  const toggleCommentDirectory = useCallback((path: string) => {
-    setCollapsedCommentDirectories((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
-
-  const toggleDirectory = useCallback((path: string) => {
-    setCollapsedDirectories((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
+  useEffect(() => saveStorage(TABS_STORAGE_KEY, JSON.stringify(tabs)), [tabs]);
+  useEffect(() => saveStorage("diffreview-sidebar", String(sidebarOpen)), [sidebarOpen]);
+  useEffect(() => saveStorage("diffreview-sidebar-width", String(sidebarWidth)), [sidebarWidth]);
 
   useEffect(() => {
-    if (!selectedPath) return;
-    const el = fileRefs.current[selectedPath];
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selectedPath, view]);
+    const button = tabButtons.current.get(tabs.activeId);
+    button?.focus({ preventScroll: true });
+    button?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tabs.activeId]);
 
-  const openCount = comments.filter((c) => c.status === "open").length;
-  const reviewComments = comments.filter((c) => c.reviewId === reviewId && !c.historical);
+  const currentProject = projects?.find((project) => project.id === tabs.activeId);
+  useEffect(() => {
+    document.title = tabs.activeId === null ? "Projects · diffreview" : `${currentProject?.name ?? "Project"} · diffreview`;
+  }, [currentProject?.name, tabs.activeId]);
 
-  if (files === null) {
-    return (
-      <div className="grid h-full place-items-center">
-        <Loader />
-      </div>
-    );
-  }
+  const navigate = (projectId: string | null) => {
+    setTabs((previous) => activateProject(previous, projectId));
+    if (window.location.pathname !== projectUrl(projectId)) window.history.pushState(null, "", projectUrl(projectId));
+  };
 
-  const allCollapsed = files.length > 0 && files.every((file) => collapsedPaths.has(diffFilePath(file)));
+  const close = (projectId: string) => {
+    const next = closeProject(tabsRef.current, projectId);
+    setTabs(next);
+    if (next.activeId !== tabsRef.current.activeId) window.history.pushState(null, "", projectUrl(next.activeId));
+    requestAnimationFrame(() => tabButtons.current.get(next.activeId)?.focus());
+  };
+
+  const handleTabKey = (event: KeyboardEvent<HTMLButtonElement>, projectId: string | null) => {
+    const ids = [null, ...tabs.ids];
+    const index = ids.indexOf(projectId);
+    let next = index;
+    if (event.key === "ArrowRight") next = (index + 1) % ids.length;
+    else if (event.key === "ArrowLeft") next = (index + ids.length - 1) % ids.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = ids.length - 1;
+    else if (event.key === "Delete" && projectId !== null) {
+      event.preventDefault();
+      close(projectId);
+      return;
+    } else return;
+    event.preventDefault();
+    const nextId = ids[next] ?? null;
+    navigate(nextId);
+    tabButtons.current.get(nextId)?.focus();
+  };
+
+  const openProject = async (path: string) => {
+    const project = await globalApi.openProject(path);
+    setProjects((previous) => [project, ...(previous ?? []).filter((item) => item.id !== project.id)]);
+    if (tabsRef.current.activeId === null) navigate(project.id);
+    else setTabs((previous) => ({ ...activateProject(previous, project.id), activeId: previous.activeId }));
+    void refreshProjects();
+  };
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2">
-        <span className="text-sm font-semibold">diffreview</span>
-        <Tabs
-          size="sm"
-          tabs={[
-            { value: "changes", label: "Changes" },
-            { value: "comments", label: `Comments (${openCount} open)` },
-          ]}
-          value={view}
-          onValueChange={(value) => {
-            if (value === "changes" || value === "comments") setView(value);
-          }}
-        />
-        {meta && (
-          <>
-            <span className="font-mono text-xs text-kumo-subtle">{meta.repoRoot}</span>
-            <Badge variant="outline">{meta.branch}</Badge>
-            <span className="font-mono text-xs">
-              <span className="text-kumo-success">+{meta.additions}</span>{" "}
-              <span className="text-kumo-danger">−{meta.deletions}</span>
-            </span>
-          </>
-        )}
-        <span className="flex-1" />
-        {openCount > 0 && <Badge variant="warning">{openCount} open</Badge>}
+    <div className="flex h-full min-w-0 flex-col text-sm">
+      <header className="flex shrink-0 items-center gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-1.5">
+        <span className="shrink-0 font-semibold">diffreview</span>
+        <div role="tablist" aria-label="Projects" aria-orientation="horizontal" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <Button
+          id="project-tab-home"
+          role="tab"
+          aria-selected={tabs.activeId === null}
+          aria-controls="project-panel-home"
+          tabIndex={tabs.activeId === null ? 0 : -1}
+          ref={(element) => { if (element) tabButtons.current.set(null, element); else tabButtons.current.delete(null); }}
+          variant="ghost"
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-sm ${tabs.activeId === null ? "ring ring-inset ring-kumo-line" : ""}`}
+          icon={PlusIcon}
+          onClick={() => navigate(null)}
+          onKeyDown={(event) => handleTabKey(event, null)}
+        >Projects</Button>
+        {tabs.ids.map((id) => {
+          const project = projects?.find((item) => item.id === id);
+          const selected = tabs.activeId === id;
+          const name = project?.name ?? (projects === null ? "Loading project…" : "Unavailable project");
+          return (
+            <div key={id} role="presentation" className={`group/tab flex w-44 shrink-0 items-center rounded-lg ${selected ? "bg-kumo-tint ring ring-inset ring-kumo-line" : "hover:bg-kumo-tint focus-within:bg-kumo-tint"}`}>
+              <Button
+                id={`project-tab-${id}`}
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`project-panel-${id}`}
+                tabIndex={selected ? 0 : -1}
+                ref={(element) => { if (element) tabButtons.current.set(id, element); else tabButtons.current.delete(id); }}
+                variant="ghost"
+                className="min-w-0 flex-1 justify-start text-left text-sm hover:bg-transparent group-focus-visible:ring-2"
+                title={project?.root ?? id}
+                aria-label={project ? `${project.name}, ${project.root}` : `${name}, ${id}`}
+                onClick={() => navigate(id)}
+                onKeyDown={(event) => handleTabKey(event, id)}
+              ><span className="min-w-0 flex-1 truncate [mask-image:linear-gradient(to_right,black_75%,transparent_100%)]">{name}</span></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                shape="square"
+                icon={XIcon}
+                className="mr-1 shrink-0 hidden group-hover/tab:block group-focus-within/tab:block"
+                tabIndex={selected ? 0 : -1}
+                aria-label={`Close ${project?.name ?? id} tab`}
+                title="Close tab. Project history is kept."
+                onClick={() => close(id)}
+              />
+            </div>
+          );
+        })}
+        </div>
+        <span role="status" className="shrink-0 text-kumo-subtle">
+          {connection === "disconnected" ? "Reconnecting…" : connection === "connecting" ? "Connecting…" : ""}
+        </span>
         <ThemeToggle />
-        {view === "changes" && (
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={files.length === 0}
-            onClick={() => setCollapsedPaths(allCollapsed ? new Set() : new Set(files.map(diffFilePath)))}
-          >
-            {allCollapsed ? "Expand all" : "Collapse all"}
-          </Button>
-        )}
-        {view === "changes" && (
-          <Tabs
-            size="sm"
-            tabs={[
-              { value: "unified", label: "Unified" },
-              { value: "split", label: "Split" },
-            ]}
-            value={layout}
-            onValueChange={(value) => {
-              if (value === "unified" || value === "split") setLayout(value);
-            }}
-          />
-        )}
       </header>
-
       <Sidebar.Provider
         open={sidebarOpen}
         onOpenChange={setSidebarOpen}
         resizable
         defaultWidth={sidebarWidth}
-        minWidth={SIDEBAR_MIN_WIDTH}
-        maxWidth={SIDEBAR_MAX_WIDTH}
+        minWidth={200}
+        maxWidth={600}
         onWidthChange={setSidebarWidth}
         contained
         mobileBreakpoint={0}
-        className="min-h-0 flex-1"
+        className="min-h-0 min-w-0 flex-1"
       >
-        {view === "comments" ? (
-          <CommentList
-            comments={comments}
-            status={commentStatus}
-            sort={commentSort}
-            grouping={commentGrouping}
-            onGroupingChange={setCommentGrouping}
-            onSortChange={setCommentSort}
-            collapsedPaths={collapsedCommentPaths}
-            onToggleCollapse={toggleCommentCollapsed}
-            onStatusChange={setCommentStatus}
-            onCarryForward={carryForwardComment}
-            onResolve={resolveComment}
-            onReopen={reopenComment}
-            onDelete={deleteComment}
-            selectedPath={selectedCommentPath}
-            onSelectFile={selectCommentFile}
-            collapsedDirectories={collapsedCommentDirectories}
-            onToggleDirectory={toggleCommentDirectory}
-          />
-        ) : files.length === 0 ? (
-          <div className="flex-1">
-            <EmptyState>
-              {openCount > 0 && (
-                <Button variant="secondary" onClick={() => {
-                  setCommentStatus("open");
-                  setView("comments");
-                }}>
-                  View {openCount} open comment{openCount === 1 ? "" : "s"}
-                </Button>
-              )}
-            </EmptyState>
+        <div className="min-h-0 min-w-0 flex-1">
+          <div id="project-panel-home" role="tabpanel" aria-labelledby="project-tab-home" tabIndex={0} hidden={tabs.activeId !== null} inert={tabs.activeId !== null} className={tabs.activeId === null ? "h-full" : "hidden"}>
+            <ProjectPicker projects={projects} error={catalogError} onRetry={() => void refreshProjects()} onOpen={openProject} onSelect={navigate} />
           </div>
-        ) : (
-          <>
-            <FileList
-              files={files.map((file) => ({
-                path: diffFilePath(file),
-                change: file,
-                commentCount: reviewComments.filter((comment) => comment.file === diffFilePath(file) && comment.status === "open").length,
-              }))}
-              selectedPath={selectedPath}
-              onSelect={selectFile}
-              collapsedDirectories={collapsedDirectories}
-              onToggleDirectory={toggleDirectory}
-            />
-            <main className="min-w-0 flex-1 overflow-y-auto">
-              {files.map((file) => {
-                const path = diffFilePath(file);
-                return (
-                  <div
-                      key={`${reviewId}:${path}`}
-                    id={path}
-                    ref={(el) => {
-                      fileRefs.current[path] = el;
-                    }}
-                  >
-                    <DiffView
-                      file={file}
-                      layout={layout}
-                      comments={reviewComments.filter((c) => c.file === path)}
-                      collapsed={collapsedPaths.has(path)}
-                      onToggleCollapse={() => toggleCollapsed(path)}
-                      onSubmitComment={submitComment}
-                      onResolve={resolveComment}
-                      onReopen={reopenComment}
-                      onDelete={deleteComment}
-                    />
-                  </div>
-                );
-              })}
-            </main>
-          </>
-        )}
+          {tabs.ids.map((id) => (
+            <div key={id} id={`project-panel-${id}`} role="tabpanel" aria-labelledby={`project-tab-${id}`} tabIndex={0} hidden={tabs.activeId !== id} inert={tabs.activeId !== id} className={tabs.activeId === id ? "h-full min-w-0" : "hidden"}>
+              <ProjectWorkspace projectId={id} active={tabs.activeId === id} revision={revisions[id] ?? 0} connectionVersion={connectionVersion} />
+            </div>
+          ))}
+        </div>
       </Sidebar.Provider>
     </div>
   );

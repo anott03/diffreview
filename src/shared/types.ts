@@ -118,6 +118,29 @@ export interface Meta {
 // REST API contracts
 // ---------------------------------------------------------------------------
 
+export interface Project {
+  id: string;
+  root: string;
+  name: string;
+  openedAt: number;
+}
+
+export interface ListProjectsResponse {
+  projects: Project[];
+}
+
+export interface OpenProjectRequest {
+  path: string;
+}
+
+export interface ServerInfo {
+  service: "diffreview";
+  protocolVersion: 1;
+  instanceId: string;
+  pid: number;
+  startedAt: number;
+}
+
 export interface GetDiffResponse {
   files: DiffFile[];
   reviewId: string;
@@ -153,29 +176,9 @@ export interface ApiErrorResponse {
 // Server-sent events
 // ---------------------------------------------------------------------------
 
-/**
- * SSE messages are lightweight invalidation signals — clients refetch the
- * corresponding resource (/api/diff or /api/comments) on receipt.
- */
-export type SseEventType = "diff" | "comments";
+/** Clients refetch the named project's resources on invalidation. */
+export type SseEventType = "diff" | "comments" | "projects";
 
-export interface SseEvent {
-  type: SseEventType;
-  /** Millisecond timestamp of the change (ordering/debugging only). */
-  at: number;
-}
-
-// ---------------------------------------------------------------------------
-// MCP discovery session file
-// ---------------------------------------------------------------------------
-
-/**
- * Written by the server to ~/.local/share/diff-review/sessions/<hash>.json,
- * read by diffreview-mcp to discover the running instance for a repo.
- */
-export interface SessionInfo {
-  port: number;
-  pid: number;
-  repoRoot: string;
-  startedAt: number;
-}
+export type SseEvent =
+  | { type: "diff" | "comments"; projectId: string; at: number }
+  | { type: "projects"; at: number };

@@ -6,6 +6,10 @@ import type {
   GetDiffResponse,
   ListCommentsResponse,
   Meta,
+  Project,
+  ListProjectsResponse,
+  ServerInfo,
+  SseEvent,
 } from "./types";
 
 const DiffFileSchema = z.object({
@@ -68,6 +72,30 @@ export const GetDiffResponseSchema = z.object({
 export const ListCommentsResponseSchema = z.object({
   comments: z.array(CommentSchema),
 }) satisfies z.ZodType<ListCommentsResponse>;
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  root: z.string(),
+  name: z.string(),
+  openedAt: z.number(),
+}) satisfies z.ZodType<Project>;
+
+export const ListProjectsResponseSchema = z.object({
+  projects: z.array(ProjectSchema),
+}) satisfies z.ZodType<ListProjectsResponse>;
+
+export const ServerInfoSchema = z.object({
+  service: z.literal("diffreview"),
+  protocolVersion: z.literal(1),
+  instanceId: z.string(),
+  pid: z.number(),
+  startedAt: z.number(),
+}) satisfies z.ZodType<ServerInfo>;
+
+export const SseEventSchema = z.union([
+  z.object({ type: z.enum(["diff", "comments"]), projectId: z.string(), at: z.number() }),
+  z.object({ type: z.literal("projects"), at: z.number() }),
+]) satisfies z.ZodType<SseEvent>;
 
 export const ApiErrorResponseSchema = z.object({
   error: z.string(),
