@@ -213,6 +213,10 @@ describe("response schemas", () => {
       const file: FileContent = { path: "a.txt", kind, content: kind === "text" || kind === "symlink" ? "text" : null };
       expect(Responses.FileContentSchema.parse(Schema.encodeSync(S.FileContentSchema)(file))).toEqual(file);
     }
+    for (const baseContent of ["original\n", "", null]) {
+      const file: FileContent = { path: "a.txt", kind: "text", content: "changed\n", baseContent, reviewId: "review" };
+      expect(Responses.FileContentSchema.parse(Schema.encodeSync(S.FileContentSchema)(file))).toEqual(file);
+    }
     const invalid = { path: "a.txt", kind: "directory", content: null };
     expect(() => Responses.FileContentSchema.parse(invalid)).toThrow();
     expect(() => Schema.decodeUnknownSync(S.FileContentSchema)(invalid)).toThrow();

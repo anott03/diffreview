@@ -158,6 +158,8 @@ export const ListFilesResponseSchema = Schema.Struct({
 export const FileContentSchema = Schema.Struct({
   path: Schema.String,
   content: Schema.NullOr(Schema.String),
+  baseContent: Schema.optional(Schema.NullOr(Schema.String)),
+  reviewId: Schema.optional(Schema.String),
   kind: Schema.Literals(["text", "binary", "too-large", "symlink", "unsupported"])
 });
 

@@ -13,6 +13,7 @@ import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
 import { FilePreview } from "./components/FilePreview";
 import { filterComments } from "./comment-filter";
+import type { CommentDraft } from "./comment-draft";
 
 interface ProjectWorkspaceProps {
   projectId: string;
@@ -39,6 +40,15 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   const [files, setFiles] = useState<DiffFile[] | null>(null);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [drafts, setDrafts] = useState<Map<string, CommentDraft>>(new Map());
+  const changeDraft = (key: string, draft: CommentDraft | null) => {
+    setDrafts((previous) => {
+      const next = new Map(previous);
+      if (draft) next.set(key, draft);
+      else next.delete(key);
+      return next;
+    });
+  };
   const [layout, setLayout] = useState<Layout>("unified");
   const [commentStatus, setCommentStatus] = useState<CommentStatus | "all">("open");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -295,13 +305,16 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
         />
         {previewPath && (
           <FilePreview
-            key={previewPath}
+            key={`${reviewId}:${previewPath}`}
             path={previewPath}
+            draft={drafts.get(`${reviewId}:${previewPath}`) ?? null}
+            onDraftChange={(draft) => changeDraft(`${reviewId}:${previewPath}`, draft)}
             active={active}
             revision={revision}
             connectionVersion={connectionVersion}
             loadFile={api.getFile}
             comments={visibleComments.filter((comment) => comment.file === previewPath)}
+            onSubmitComment={submitComment}
             onCarryForward={carryForwardComment}
             onResolve={resolveComment}
             onReopen={reopenComment}
@@ -328,6 +341,13 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
               >
                 <DiffView
                   file={file}
+                  workspaceActive={active && previewPath === null}
+                  revision={revision}
+                  connectionVersion={connectionVersion}
+                  loadContext={api.getFileContext}
+                  reviewId={reviewId ?? ""}
+                  draft={drafts.get(`${reviewId}:${path}`) ?? null}
+                  onDraftChange={(draft) => changeDraft(`${reviewId}:${path}`, draft)}
                   layout={layout}
                   comments={visibleComments.filter((c) => c.file === path)}
                   onCarryForward={carryForwardComment}

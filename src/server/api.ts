@@ -61,7 +61,7 @@ export class ApiGroup extends HttpApiGroup.make("api")
   }))
   .add(HttpApiEndpoint.get("file", "/projects/:projectId/file", {
     params: projectParams,
-    query: { path: Schema.String },
+    query: { path: Schema.String, context: Schema.optional(Schema.String), reviewId: Schema.optional(Schema.String) },
     success: S.FileContentSchema,
     error: reviewErrors
   }))

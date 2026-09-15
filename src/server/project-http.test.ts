@@ -29,8 +29,8 @@ const scoped = (project: Project, path: string, init?: RequestInit) => request(`
 const open = async (path: string) => decode(await request("/projects", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path })
 }), S.ProjectSchema);
-const create = async (project: Project, body: string) => {
-  const input: CreateCommentRequest = { file: "same.txt", side: "new", line: 1, lineText: body, body };
+const create = async (project: Project, body: string, lineText = body) => {
+  const input: CreateCommentRequest = { file: "same.txt", side: "new", line: 1, lineText, body };
   const response = await scoped(project, "/comments", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input)
   });
@@ -110,6 +110,23 @@ describe("project-scoped HTTP", () => {
         await rm(join(repos[0]!, path), { force: true });
       }
     }
+  });
+
+  it("returns review-bound base content only when requested and rejects stale context requests", async () => {
+    const project = projects[0]!;
+    const { reviewId } = await decode(await scoped(project, "/diff"), S.GetDiffResponseSchema);
+    const query = new URLSearchParams({ path: "same.txt", context: "true", reviewId });
+    const response = await scoped(project, `/file?${query}`);
+    expect(response.status).toBe(200);
+    expect(await decode(response, S.FileContentSchema)).toEqual({
+      path: "same.txt", kind: "text", content: "project-0\n", baseContent: "original\n", reviewId
+    });
+    query.set("reviewId", "stale-review");
+    expect((await scoped(project, `/file?${query}`)).status).toBe(400);
+    query.set("context", "false");
+    expect(await decode(await scoped(project, `/file?${query}`), S.FileContentSchema)).toEqual({
+      path: "same.txt", kind: "text", content: "project-0\n"
+    });
   });
 
   it("isolates matching file paths, comment IDs, review transitions, and persisted history", async () => {
@@ -199,8 +216,8 @@ describe("project-scoped HTTP", () => {
       }
     })();
     try {
-      await create(projects[0]!, "sse-a");
-      await create(projects[1]!, "sse-b");
+      await create(projects[0]!, "sse-a", "project-0");
+      await create(projects[1]!, "sse-b", "project-1");
       await open(repos[0]!);
       const deadline = Date.now() + 2000;
       while ((!frames.join("").includes('"type":"projects"') || projects.some((p) => !frames.join("").includes(`"projectId":"${p.id}"`))) && Date.now() < deadline) {

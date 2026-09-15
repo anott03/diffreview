@@ -78,6 +78,8 @@ export const ListFilesResponseSchema = z.object({
 export const FileContentSchema = z.object({
   path: z.string(),
   content: z.string().nullable(),
+  baseContent: z.string().nullable().optional(),
+  reviewId: z.string().optional(),
   kind: z.enum(["text", "binary", "too-large", "symlink", "unsupported"]),
 }) satisfies z.ZodType<FileContent>;
 

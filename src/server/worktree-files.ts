@@ -2,6 +2,7 @@ import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, readlin
 import { dirname, isAbsolute, join, win32 } from "node:path";
 import type { FileContent } from "../shared/types";
 import { NotFoundError } from "./api";
+import { normalizeTextLines } from "./text-lines";
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -60,7 +61,7 @@ export function readWorkingTreeFile(root: string, path: string): FileContent {
     const bytes = buffer.subarray(0, length);
     if (bytes.includes(0)) return { path, kind: "binary", content: null };
     try {
-      return { path, kind: "text", content: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) };
+      return { path, kind: "text", content: normalizeTextLines(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)) };
     } catch {
       return { path, kind: "binary", content: null };
     }

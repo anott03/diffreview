@@ -81,10 +81,21 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
 - The sidebar header switches between Changed files and All files, with
   project-local mode state. All files uses `/api/projects/:projectId/files` to list
   tracked and nonignored untracked working-tree files. Unchanged files open a
-  read-only `FilePreview` via `/api/projects/:projectId/file?path=...`; changed files
+  comment-enabled `FilePreview` via `/api/projects/:projectId/file?path=...`; changed files
   still open their diff. Reads reject traversal and symlink parents, return symlink
   targets as text rather than following them, and cap contents at 1 MiB. The preview
-  displays at most 10,000 lines. File tree and preview reads abort on deactivation
+  displays at most 10,000 lines. Current matching new-side comments appear inline;
+  historical, outdated and old-side comments retain saved context above the file.
+  DiffView lazily reads the same endpoint with `context=true` and the expected
+  `reviewId` to expand unchanged code before, between, and after hunks in both
+  layouts. The response includes bounded `baseContent` and `reviewId` fields.
+  `web/diff-context.ts` reconstructs both complete sides, verifies them against
+  the working-tree and base contents, and enforces a 10,000-line expansion limit.
+  Hidden comments remain accessible with saved context. Text reads and diff lines
+  normalize CRLF, while symlink targets remain raw.
+  Comment drafts live in ProjectWorkspace keyed by review and path, surviving
+  preview/diff transitions and expanded-row reloads. Editors use controlled bodies.
+  File tree and preview reads abort on deactivation
   and refresh on project events and reconnection.
 - The sidebar's right-edge `Sidebar.ResizeHandle` uses Kumo's built-in resizing
   (200–600px). App persists its width under `diffreview-sidebar-width` in localStorage.
@@ -94,7 +105,8 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   hiding files. `web/comment-filter.ts` keeps Changed files scoped to the current
   review; All files includes historical comments attached to existing project files.
   DiffView keeps historical comments outside live anchors with saved context, and
-  FilePreview displays saved threads above file contents. Both support carry-forward.
+  FilePreview displays saved threads above file contents and matching current
+  comments inline. Both support carry-forward.
 - The active workspace portals Collapse all and Unified / Split controls into App's
   header immediately before the theme toggle. Their state stays project-local;
   inactive, loading, and file-preview workspaces do not render controls there.
@@ -189,7 +201,14 @@ src/
   missing anchors retain their saved code and remain outdated. Reopen/resolve
   alone never changes review membership. Stale UI submissions include an expected
   review ID and are rejected when the review has ended.
-- `resolveAnchors()` is the single source of truth. An anchor is valid only if
+- `resolveAnchors()` is the single source of truth. ProjectReview supplies full
+  working-tree new-side contents and base-HEAD old-side contents for commented
+  paths, using the original path for renamed old sides. Reads are bounded to 1 MiB,
+  secure working-tree reads are deduplicated per request, and unavailable contents
+  fall back to diff lines. Unchanged files and hidden lines remain valid anchors.
+  Creation and carry-forward capture full-side excerpts; readable stale content
+  is rejected on creation unless a matching line can be found.
+  An anchor is valid only if
   the line number and the content both match. If only content matches, the
   stored line number is updated to the new location (`outdated: false`).
 - If neither matches, the comment is returned as `outdated: true` and grouped in

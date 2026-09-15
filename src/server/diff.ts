@@ -31,14 +31,15 @@ export function parseGitDiff(diffText: string): DiffFile[] {
       oldStart: chunk.oldStart,
       newStart: chunk.newStart,
       lines: chunk.changes
-        // parse-diff emits "\ No newline at end of file" as a duplicated change
-        // entry — drop those meta lines.
-        .filter((change) => !change.content.startsWith("\\"))
-        .map((change): DiffLine => {
-          const content = change.content.slice(1);
-          if (change.type === "add") return { type: "add", newLine: change.ln, content };
-          if (change.type === "del") return { type: "del", oldLine: change.ln, content };
-          return { type: "context", oldLine: change.ln1, newLine: change.ln2, content };
+        .flatMap((change, index): DiffLine[] => {
+          if (change.content.startsWith("\\")) return [];
+          const mode = change.type === "del" ? raw.oldMode : raw.newMode;
+          const noNewline = chunk.changes[index + 1]?.content.startsWith("\\");
+          const text = change.content.slice(1);
+          const content = mode !== "120000" && !noNewline && text.endsWith("\r") ? text.slice(0, -1) : text;
+          if (change.type === "add") return [{ type: "add", newLine: change.ln, content }];
+          if (change.type === "del") return [{ type: "del", oldLine: change.ln, content }];
+          return [{ type: "context", oldLine: change.ln1, newLine: change.ln2, content }];
         }),
     }));
 

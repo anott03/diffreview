@@ -153,6 +153,8 @@ export interface ListFilesResponse {
 export interface FileContent {
   path: string;
   content: string | null;
+  baseContent?: string | null;
+  reviewId?: string;
   kind: "text" | "binary" | "too-large" | "symlink" | "unsupported";
 }
 

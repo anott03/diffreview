@@ -49,6 +49,8 @@ export function createProjectApi(projectId: string) {
     getFiles: (signal?: AbortSignal) => request(`${base}/files`, ListFilesResponseSchema, { signal }),
     getFile: (path: string, signal?: AbortSignal) =>
       request(`${base}/file?${new URLSearchParams({ path })}`, FileContentSchema, { signal }),
+    getFileContext: (path: string, reviewId: string, signal?: AbortSignal) =>
+      request(`${base}/file?${new URLSearchParams({ path, context: "true", reviewId })}`, FileContentSchema, { signal }),
     getComments: (signal?: AbortSignal) => request(`${base}/comments?status=all`, ListCommentsResponseSchema, { signal }),
     createComment: (input: CreateCommentRequest) =>
       request(`${base}/comments`, CommentSchema, { method: "POST", ...json(input) }),

@@ -8,7 +8,9 @@ agents can read and mark as addressed through MCP.
 - Review staged, unstaged, and untracked changes against HEAD in unified or split view.
 - Switch the sidebar between Changed files and All files. All files includes tracked
   and nonignored untracked files. Changed files open their diff; unchanged files have
-  a read-only text preview, limited to 1 MiB and 10,000 displayed lines.
+  a text preview with inline commenting, limited to 1 MiB and 10,000 displayed lines.
+- Expand unchanged code before, between, and after diff hunks in either layout, and
+  comment on those lines too. Expansion supports text files up to 1 MiB and 10,000 lines.
 - Open multiple working trees in project tabs, with a picker for recent projects.
 - Keep selections, filters, collapsed files, scroll positions, and editor drafts
   when switching project tabs. Closing a tab discards its local workspace, not its comments.

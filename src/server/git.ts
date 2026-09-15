@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { DiffFile, Meta } from "../shared/types";
 import { buildUntrackedBinaryFile, buildUntrackedFile, parseGitDiff } from "./diff";
+import { normalizeTextLines } from "./text-lines";
 
 const execFileAsync = promisify(execFile);
 
@@ -178,7 +179,7 @@ export class Git extends Context.Service<Git, {
           if (buf === null) return null;
           return isBinaryBuffer(buf)
             ? buildUntrackedBinaryFile(path)
-            : buildUntrackedFile(path, buf.toString("utf8"));
+            : buildUntrackedFile(path, normalizeTextLines(buf.toString("utf8")));
         });
 
       const readUntrackedFiles = Effect.fn("Git.readUntrackedFiles")(function*(

@@ -258,13 +258,14 @@ describe("Effect HTTP server (wire contract)", () => {
       });
     }
 
-    // A comment without a snapshot (as in pre-migration databases) recovers matching HEAD context.
-    const legacy = await create("new", "TWO");
-    expect(legacy.context).toBeUndefined();
-    const recovered = await json(await handler(new Request(`${projectUrl}/comments`)), S.ListCommentsResponseSchema);
-    expect(recovered.comments.find((c) => c.id === legacy.id)!.context).toMatchObject({
-      source: "head", line: 2,
+    const unchanged = await create("new", "TWO");
+    expect(unchanged.context).toMatchObject({
+      source: "snapshot", line: 2,
       lines: expect.arrayContaining([{ line: 1, content: "one" }, { line: 2, content: "TWO" }])
+    });
+    const recovered = await json(await handler(new Request(`${projectUrl}/comments`)), S.ListCommentsResponseSchema);
+    expect(recovered.comments.find((c) => c.id === unchanged.id)).toMatchObject({
+      historical: false, outdated: false, context: unchanged.context
     });
 
     await git(repoDir, ["rm", "a.txt"]);
@@ -275,10 +276,9 @@ describe("Effect HTTP server (wire contract)", () => {
     );
     const removed = await json(await handler(new Request(`${projectUrl}/comments?status=open`)), S.ListCommentsResponseSchema);
     expect(removed.comments.find((c) => c.id === old.id)!.context).toEqual(old.context);
-    expect(removed.comments.find((c) => c.id === legacy.id)).toMatchObject({
-      status: "open", lineText: "TWO"
+    expect(removed.comments.find((c) => c.id === unchanged.id)).toMatchObject({
+      status: "open", lineText: "TWO", context: unchanged.context
     });
-    expect(removed.comments.find((c) => c.id === legacy.id)!.context).toBeUndefined();
   });
 
   it("isolates recurring code by review and carries comments forward only on explicit request", async () => {
