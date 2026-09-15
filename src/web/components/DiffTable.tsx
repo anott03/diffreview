@@ -3,6 +3,8 @@ import { Plus } from "@phosphor-icons/react";
 import { Fragment, type ReactNode } from "react";
 import type { Comment, CommentSide, DiffFile, DiffLine } from "../../shared/types";
 import type { CommentDraft } from "../comment-draft";
+import type { SyntaxLines, SyntaxToken } from "../syntax-highlighting";
+import { CodeLine } from "./CodeLine";
 import { CommentEditor } from "./CommentEditor";
 import { CommentThread } from "./CommentThread";
 
@@ -18,6 +20,7 @@ export function anchorKey(side: CommentSide, line: number): string {
 
 interface DiffTableProps {
   file: DiffFile;
+  syntaxLines?: SyntaxLines;
   renderHunkHeader?: (index: number) => ReactNode;
   commentsByAnchor: Map<string, Comment[]>;
   editing: CommentDraft | null;
@@ -114,7 +117,7 @@ export function UnifiedDiffTable(props: DiffTableProps) {
                     <span className="select-none text-kumo-subtle">
                       {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
                     </span>
-                    {line.content}
+                    <CodeLine content={line.content} tokens={props.syntaxLines?.get(anchorKey(side, lineNo))} />
                   </span>
                 </div>
                 {oldAnchor && (
@@ -181,17 +184,19 @@ function SplitCell({
   line,
   prefix,
   tinted,
+  tokens,
 }: {
   line: DiffLine | null;
   prefix: "+" | "-";
   tinted: boolean;
+  tokens?: SyntaxToken[];
 }) {
   return (
     <span className={cn("whitespace-pre-wrap break-all pr-4", tinted && line && (prefix === "+" ? "diff-add" : "diff-del"))}>
       {line && (
         <>
           <span className="select-none text-kumo-subtle">{prefix}</span>
-          {line.content}
+          <CodeLine content={line.content} tokens={tokens} />
         </>
       )}
     </span>
@@ -227,12 +232,12 @@ export function SplitDiffTable(props: DiffTableProps) {
                     {leftAnchor && <AddCommentButton onClick={() => onStartComment(leftAnchor)} />}
                   </span>
                   <LineNo value={row.left?.oldLine} />
-                  <SplitCell line={row.left} prefix="-" tinted={row.left?.type === "del"} />
+                  <SplitCell line={row.left} prefix="-" tinted={row.left?.type === "del"} tokens={leftAnchor ? props.syntaxLines?.get(anchorKey("old", leftAnchor.line)) : undefined} />
                   <span className="flex justify-center border-l border-kumo-line">
                     {rightAnchor && <AddCommentButton onClick={() => onStartComment(rightAnchor)} />}
                   </span>
                   <LineNo value={row.right?.newLine} />
-                  <SplitCell line={row.right} prefix="+" tinted={row.right?.type === "add"} />
+                  <SplitCell line={row.right} prefix="+" tinted={row.right?.type === "add"} tokens={rightAnchor ? props.syntaxLines?.get(anchorKey("new", rightAnchor.line)) : undefined} />
                 </div>
                 {leftAnchor && (
                   <UnderRow

@@ -7,6 +7,8 @@ import type { Comment, CreateCommentRequest, DiffFile, FileContent } from "../..
 import { diffFilePath } from "../../shared/types";
 import type { CommentDraftProps } from "../comment-draft";
 import { diffWithContext, validateDiffContent } from "../diff-context";
+import { diffSyntaxSources, type DiffSyntaxContent } from "../syntax-highlighting";
+import { useSyntaxHighlighting } from "../use-syntax-highlighting";
 import { CommentEditor } from "./CommentEditor";
 import { CommentThread } from "./CommentThread";
 import { anchorKey, SplitDiffTable, UnifiedDiffTable, type EditingAnchor } from "./DiffTable";
@@ -59,7 +61,7 @@ export function DiffView({
 }: DiffViewProps) {
   const path = diffFilePath(file);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [context, setContext] = useState<{ signature: string; content: string } | null>(null);
+  const [context, setContext] = useState<(DiffSyntaxContent & { signature: string }) | null>(null);
   const [contextError, setContextError] = useState<string | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -79,7 +81,7 @@ export function DiffView({
       if (result.reviewId !== reviewId) throw new Error("This review ended. Refresh the diff and try again.");
       if (result.baseContent == null) throw new Error("The base file is unavailable or exceeds the 1 MiB context limit.");
       validateDiffContent(file, result.content, result.baseContent);
-      setContext({ signature, content: result.content });
+      setContext({ signature, content: result.content, baseContent: result.baseContent });
     }).catch((cause) => {
       if (!controller.signal.aborted) setContextError(String(cause));
     }).finally(() => {
@@ -91,6 +93,11 @@ export function DiffView({
   const displayed = useMemo(() => diffWithContext(
     file, context?.signature === signature ? context.content : null, expanded,
   ), [file, context, signature, expanded]);
+
+  const syntaxSources = useMemo(() => diffSyntaxSources(
+    file, context?.signature === signature ? context : null,
+  ), [file, context, signature]);
+  const syntaxLines = useSyntaxHighlighting(syntaxSources, workspaceActive && !collapsed);
 
   const { active, outdated } = useMemo(() => {
     const active: Comment[] = [];
@@ -130,6 +137,7 @@ export function DiffView({
   const status = STATUS_BADGE[file.status];
   const tableProps = {
     file: displayed.file,
+    syntaxLines,
     renderHunkHeader: (index: number) => {
       const gap = displayed.gaps.get(index);
       if (!gap) return displayed.file.hunks[index]!.header;

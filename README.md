@@ -6,6 +6,8 @@ agents can read and mark as addressed through MCP.
 ## Features
 
 - Review staged, unstaged, and untracked changes against HEAD in unified or split view.
+- Syntax highlighting in diffs and file previews follows the light or dark theme.
+  Languages load on demand; unsupported file types stay plain text.
 - Switch the sidebar between Changed files and All files. All files includes tracked
   and nonignored untracked files. Changed files open their diff; unchanged files have
   a text preview with inline commenting, limited to 1 MiB and 10,000 displayed lines.

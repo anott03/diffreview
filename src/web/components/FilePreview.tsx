@@ -1,8 +1,12 @@
 import { Button } from "@cloudflare/kumo/components/button";
 import { Loader } from "@cloudflare/kumo/components/loader";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Comment, CreateCommentRequest, FileContent } from "../../shared/types";
 import type { CommentDraftProps } from "../comment-draft";
+import { textLines } from "../diff-context";
+import type { SyntaxSource } from "../syntax-highlighting";
+import { useSyntaxHighlighting } from "../use-syntax-highlighting";
+import { CodeLine } from "./CodeLine";
 import { CommentThread } from "./CommentThread";
 import { AddCommentButton, UnderRow, anchorKey, type EditingAnchor } from "./DiffTable";
 
@@ -45,8 +49,11 @@ export function FilePreview({ path, active, revision, connectionVersion, loadFil
     return () => controller.abort();
   }, [path, active, revision, connectionVersion, loadFile, retry]);
 
-  const lines = file?.kind === "text" && file.content ? file.content.split("\n") : [];
-  if (file?.content?.endsWith("\n")) lines.pop();
+  const lines = useMemo(() => file?.kind === "text" ? textLines(file.content ?? "") : [], [file]);
+  const syntaxSources = useMemo(() => [{
+    path, side: "new", startLine: 1, content: lines.slice(0, 10000).join("\n"),
+  }] satisfies SyntaxSource[], [path, lines]);
+  const syntaxLines = useSyntaxHighlighting(syntaxSources, active && file?.kind === "text");
   const rows = lines.slice(0, 10000).map((lineText, index) => ({ line: index + 1, lineText, saved: false }));
   if (editing && editing.line > rows.length) rows.push({ ...editing, saved: true });
 
@@ -129,7 +136,7 @@ export function FilePreview({ path, active, revision, connectionVersion, loadFil
                       {active && !editing && <AddCommentButton onClick={() => { setSaveError(null); onDraftChange({ ...anchor, body: "" }); }} />}
                     </td>
                     <td aria-hidden="true" className="w-px select-none border-r border-kumo-line px-3 text-right align-top text-kumo-subtle">{row.line}</td>
-                    <td className="whitespace-pre px-4">{row.lineText || "\u200b"}</td>
+                    <td className="whitespace-pre px-4"><CodeLine content={row.lineText || "\u200b"} tokens={syntaxLines.get(anchorKey("new", row.line))} /></td>
                   </tr>
                 )}
                 {(anchored.length > 0 || isEditing) && (

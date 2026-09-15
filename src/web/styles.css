@@ -18,6 +18,14 @@ body {
   color: var(--text-color-kumo-default);
 }
 
+.syntax-token {
+  color: var(--syntax-light);
+}
+
+html[data-mode="dark"] .syntax-token {
+  color: var(--syntax-dark);
+}
+
 /* Diff row tints — slightly softened versions of kumo's status tints. */
 .diff-add {
   background-color: color-mix(in oklab, var(--color-kumo-success-tint) 70%, transparent);
