@@ -6,9 +6,9 @@ const MAX_ATTEMPTS = 2;
 let worker: Worker | undefined;
 let nextId = 0;
 type PendingEntry = {
-  resolve?: (response: SyntaxResponse) => void;
-  request?: SyntaxRequest;
-  attempts?: number;
+  resolve: (response: SyntaxResponse) => void;
+  request: SyntaxRequest;
+  attempts: number;
 };
 const pending = new Map<number, PendingEntry>();
 const emptyLines: SyntaxLines = new Map();
@@ -17,21 +17,25 @@ function syntaxWorker(): Worker {
   if (worker) return worker;
   const instance = new Worker(new URL("./syntax-worker.ts", import.meta.url), { type: "module" });
   instance.onmessage = (event: MessageEvent<SyntaxResponse>) => {
-    pending.get(event.data.id)?.resolve?.(event.data);
+    if (worker !== instance) return;
+    pending.get(event.data.id)?.resolve(event.data);
     pending.delete(event.data.id);
   };
   instance.onerror = () => {
-    const retry = [...pending.values()].filter((entry) => entry.request !== undefined);
-    pending.clear();
+    if (worker !== instance) return;
     instance.terminate();
     worker = undefined;
-    for (const entry of retry) {
-      if (!entry.request) continue;
-      const count = entry.attempts ?? 0;
-      if (count >= MAX_ATTEMPTS) continue;
-      const id = nextId++;
-      pending.set(id, { request: entry.request, attempts: count + 1 });
-      syntaxWorker().postMessage(entry.request);
+    for (const [id, entry] of pending) {
+      if (entry.attempts >= MAX_ATTEMPTS) {
+        pending.delete(id);
+        continue;
+      }
+      entry.attempts++;
+      try {
+        syntaxWorker().postMessage(entry.request);
+      } catch {
+        pending.delete(id);
+      }
     }
   };
   worker = instance;
@@ -57,7 +61,7 @@ export function useSyntaxHighlighting(sources: SyntaxSource[], enabled = true): 
           setResult({ sources, lines });
         },
         request,
-        attempts: 0,
+        attempts: 1,
       });
       instance.postMessage(request);
     } catch {

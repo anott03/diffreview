@@ -60,7 +60,7 @@ export class ProjectRegistry extends Context.Service<ProjectRegistry, {
               Stream.runForEach((event) => PubSub.publish(events, { ...event, projectId: project.id })),
               Effect.forkIn(scope, { startImmediately: true })
             )),
-            Effect.ensuring(catalog.recordDatabase(entry).pipe(Effect.orDie)),
+            Effect.tap(() => catalog.recordDatabase(entry)),
             Effect.onExit((exit) => Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void)
           );
         }).pipe(

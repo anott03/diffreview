@@ -131,7 +131,6 @@ export class ProjectCatalog extends Context.Service<ProjectCatalog, {
           try: () => databaseForRoot(row.root, row.root, directory, row.dbPath, row.dbInitialized !== 0),
           catch: (cause) => new ProjectUnavailableError({ error: errMessage(cause) })
         });
-        yield* recordDatabase(entry);
       })),
       register: (root, input) => registration.withPermits(1)(Effect.gen(function*() {
         const id = repoHash(root);
@@ -150,8 +149,7 @@ export class ProjectCatalog extends Context.Service<ProjectCatalog, {
         yield* Effect.try({
           try: () => db.prepare(`
             INSERT INTO projects (id, root, name, openedAt, dbPath, dbInitialized) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET openedAt = excluded.openedAt,
-              dbInitialized = MAX(projects.dbInitialized, excluded.dbInitialized)
+            ON CONFLICT(id) DO UPDATE SET openedAt = excluded.openedAt
           `).run(id, root, project.name, project.openedAt, dbPath, existsSync(dbPath) ? 1 : 0),
           catch: (cause) => new InternalError({ error: errMessage(cause) })
         });

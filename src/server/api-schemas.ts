@@ -38,7 +38,6 @@ const bounded = (minimum: number, maximum: number) => Schema.String.pipe(
 );
 
 export const CommentTextSchema = bounded(1, 100_000);
-/** Empty lineText is legitimate for comments that were never anchored. */
 export const LineTextSchema = bounded(0, 100_000);
 
 // ---------------------------------------------------------------------------
@@ -113,7 +112,7 @@ export const CreateCommentRequestSchema = Schema.Struct({
 
 export const UpdateCommentRequestSchema = Schema.Struct({
   status: Schema.optionalKey(StatusSchema),
-  note: Schema.optionalKey(CommentTextSchema),
+  note: Schema.optionalKey(bounded(0, 100_000)),
   body: Schema.optionalKey(CommentTextSchema),
   carryForward: Schema.optionalKey(Schema.Literals([true]))
 }).pipe(

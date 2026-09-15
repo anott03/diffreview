@@ -94,9 +94,9 @@ export const loopbackHosts = (port: number) => HttpRouter.middleware((httpEffect
     const allowed = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, "127.0.0.1", "localhost"]);
     return allowed.has(request.headers["host"] ?? "")
       ? httpEffect
-      : Effect.succeed(HttpServerResponse.text("Forbidden", {
+      : Effect.succeed(HttpServerResponse.text(JSON.stringify({ error: "Request Host is not allowed. Use the server's loopback URL." }), {
         status: 403,
-        contentType: "text/plain"
+        contentType: "application/json"
       }));
   }), { global: true });
 

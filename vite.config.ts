@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       // Keep this trailing slash. `/api` also matches Vite's `/api.ts`
       // module URL for src/web/api.ts, causing the UI to blank in dev.
-      "/api/": "http://127.0.0.1:4777",
+      "/api/": { target: "http://127.0.0.1:4777", changeOrigin: true },
     },
   },
   build: {
