@@ -157,6 +157,9 @@ export class ProjectReview extends Context.Service<ProjectReview, {
         Effect.catch(toError)
       ),
       listComments: Effect.fn("ProjectReview.listComments")(function*(query: CommentQuery) {
+        // Note: this read persists re-anchored line numbers and HEAD-recovered
+        // context snapshots when they change; the store write itself stays
+        // idempotent between concurrent requests.
         const filter: CommentFilter = {};
         if (query.status && query.status !== "all") {
           if (query.status !== "open" && query.status !== "addressed") {
@@ -200,6 +203,9 @@ export class ProjectReview extends Context.Service<ProjectReview, {
           return yield* Effect.fail(new BadRequestError({
             error: "This review ended after HEAD changed. Refresh the diff before adding a comment."
           }));
+        }
+        if (!isWorkingTreePath(input.file)) {
+          return yield* Effect.fail(new BadRequestError({ error: "comment path is not within the working tree" }));
         }
         const anchors = yield* anchorFiles(files, head, [input]);
         const context = contextFromDiff(anchors.files, input);

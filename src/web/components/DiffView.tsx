@@ -65,7 +65,8 @@ export function DiffView({
   const [contextError, setContextError] = useState<string | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
   const [retry, setRetry] = useState(0);
-  const signature = JSON.stringify(file);
+  // Stable across re-renders unless the diff changes; used in effect and memo deps.
+  const signature = useMemo(() => JSON.stringify(file), [file]);
   const needsContext = expanded.size > 0;
 
   useEffect(() => {
@@ -81,7 +82,7 @@ export function DiffView({
       if (result.reviewId !== reviewId) throw new Error("This review ended. Refresh the diff and try again.");
       if (result.baseContent == null) throw new Error("The base file is unavailable or exceeds the 1 MiB context limit.");
       validateDiffContent(file, result.content, result.baseContent);
-      setContext({ signature, content: result.content, baseContent: result.baseContent });
+      setContext({ signature: JSON.stringify(file), content: result.content, baseContent: result.baseContent });
     }).catch((cause) => {
       if (!controller.signal.aborted) setContextError(String(cause));
     }).finally(() => {

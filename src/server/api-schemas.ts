@@ -29,6 +29,18 @@ const PositiveIntSchema = Schema.Finite.pipe(
   Schema.check(Schema.isInt(), Schema.isGreaterThan(0))
 );
 
+/** A runaway client must not bloat the comment store or every list response. */
+const bounded = (minimum: number, maximum: number) => Schema.String.pipe(
+  Schema.check(Schema.makeFilter(
+    (value: string) => value.length >= minimum && value.length <= maximum,
+    { message: `expected ${minimum}-${maximum} characters` }
+  ))
+);
+
+export const CommentTextSchema = bounded(1, 100_000);
+/** Empty lineText is legitimate for comments that were never anchored. */
+export const LineTextSchema = bounded(0, 100_000);
+
 // ---------------------------------------------------------------------------
 // Diff model (GET /api/diff payloads)
 // ---------------------------------------------------------------------------
@@ -95,14 +107,14 @@ export const CreateCommentRequestSchema = Schema.Struct({
   file: Schema.NonEmptyString,
   side: SideSchema,
   line: PositiveIntSchema,
-  lineText: Schema.String,
-  body: Schema.NonEmptyString
+  lineText: LineTextSchema,
+  body: CommentTextSchema
 });
 
 export const UpdateCommentRequestSchema = Schema.Struct({
   status: Schema.optionalKey(StatusSchema),
-  note: Schema.optionalKey(Schema.String),
-  body: Schema.optionalKey(Schema.NonEmptyString),
+  note: Schema.optionalKey(CommentTextSchema),
+  body: Schema.optionalKey(CommentTextSchema),
   carryForward: Schema.optionalKey(Schema.Literals([true]))
 }).pipe(
   Schema.check(

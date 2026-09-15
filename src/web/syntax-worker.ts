@@ -49,7 +49,8 @@ let highlighter: ReturnType<typeof createHighlighterCore> | undefined;
 
 async function highlight(source: SyntaxSource): Promise<SyntaxToken[][] | null> {
   const language = syntaxLanguage(source.path);
-  if (!language || source.content.length > 1024 * 1024 || source.content.split("\n").length > 10001) return null;
+  const bytes = new TextEncoder().encode(source.content).byteLength;
+  if (!language || bytes > 1024 * 1024 || source.content.split("\n").length > 10001) return null;
   try {
     const instance = await (highlighter ??= createHighlighterCore({
       themes: [import("shiki/themes/github-light.mjs"), import("shiki/themes/github-dark.mjs")],

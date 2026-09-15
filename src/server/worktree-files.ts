@@ -45,6 +45,8 @@ export function readWorkingTreeFile(root: string, path: string): FileContent {
     const opened = fstatSync(fd);
     checkedPath(root, path);
     if (opened.dev !== stat.dev || opened.ino !== stat.ino ||
+      // The /proc re-check covers fd-level symlink swaps; platforms without /proc
+      // (macOS) rely only on O_NOFOLLOW plus the dev/ino comparison above.
       (process.platform === "linux" && realpathSync(`/proc/self/fd/${fd}`) !== absolute)) {
       throw new NotFoundError({ error: "file not found" });
     }

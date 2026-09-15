@@ -84,6 +84,22 @@ export const apiNotFoundRoutes = HttpRouter.add(
   })
 );
 
+/**
+ * Reject DNS-rebinding requests: a malicious page can rebind attacker.com to
+ * 127.0.0.1 and reach any loopback-bound server. Only loopback host headers
+ * that a real browser would produce for this server are accepted.
+ */
+export const loopbackHosts = (port: number) => HttpRouter.middleware((httpEffect) =>
+  Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
+    const allowed = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, "127.0.0.1", "localhost"]);
+    return allowed.has(request.headers["host"] ?? "")
+      ? httpEffect
+      : Effect.succeed(HttpServerResponse.text("Forbidden", {
+        status: 403,
+        contentType: "text/plain"
+      }));
+  }), { global: true });
+
 const NOT_BUILT =
   "diffreview UI is not built. Run `pnpm build` to serve it from this port, " +
   "or during development open the vite dev server at http://localhost:5173 (`pnpm dev`).";
@@ -109,7 +125,10 @@ export const projectServices = (options: ServerOptions, catalogPath?: string) =>
 
 export const serverLayer = (options: ServerOptions) => {
   const services = projectServices(options);
-  return HttpRouter.serve(Layer.mergeAll(ApiRoutes, apiNotFoundRoutes, webRoutes(options.webRoot))).pipe(
+  const routes = Layer.mergeAll(ApiRoutes, apiNotFoundRoutes, webRoutes(options.webRoot)).pipe(
+    Layer.provide(loopbackHosts(options.port))
+  );
+  return HttpRouter.serve(routes).pipe(
     Layer.provide([
       NodeHttpServer.layer(() => createServer(), { port: options.port, host: "127.0.0.1" }),
       NodeFileSystem.layer,
