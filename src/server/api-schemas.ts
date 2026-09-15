@@ -151,6 +151,16 @@ export const GetDiffResponseSchema = Schema.Struct({
   reviewId: Schema.String
 });
 
+export const ListFilesResponseSchema = Schema.Struct({
+  files: ArrayOf(Schema.String)
+});
+
+export const FileContentSchema = Schema.Struct({
+  path: Schema.String,
+  content: Schema.NullOr(Schema.String),
+  kind: Schema.Literals(["text", "binary", "too-large", "symlink", "unsupported"])
+});
+
 export const ListCommentsResponseSchema = Schema.Struct({
   comments: ArrayOf(CommentSchema)
 });

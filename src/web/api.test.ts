@@ -41,6 +41,30 @@ describe("project-bound requests", () => {
     expect(fetcher.mock.calls[3]?.[1]?.body).toContain('"reviewId":"review-a"');
   });
 
+  it("binds file browsing to the project and encodes file paths without losing special characters", async () => {
+    const path = "src/a #?&é.ts";
+    const fetcher = vi.fn(async (url: string, _init?: RequestInit) => url.endsWith("/files")
+      ? Response.json({ files: [path] })
+      : Response.json({ path, content: "code\n", kind: "text" }));
+    vi.stubGlobal("fetch", fetcher);
+    const api = createProjectApi("project/a");
+    const controller = new AbortController();
+    expect(await api.getFiles(controller.signal)).toEqual({ files: [path] });
+    expect(await api.getFile(path, controller.signal)).toEqual({ path, content: "code\n", kind: "text" });
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/api/projects/project%2Fa/files");
+    const url = new URL(fetcher.mock.calls[1]![0], "http://localhost");
+    expect(url.pathname).toBe("/api/projects/project%2Fa/file");
+    expect(url.searchParams.get("path")).toBe(path);
+    expect(fetcher.mock.calls.every(([, init]) => init?.signal === controller.signal)).toBe(true);
+  });
+
+  it("rejects invalid file browsing responses", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ files: [123], path: "a", kind: "html", content: null }));
+    const api = createProjectApi("a");
+    await expect(api.getFiles()).rejects.toThrow();
+    await expect(api.getFile("a")).rejects.toThrow();
+  });
+
   it("surfaces unavailable project errors rather than returning empty data", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ error: "Working tree is missing" }, { status: 503 }));
     await expect(createProjectApi("missing").getDiff()).rejects.toThrow("Working tree is missing");

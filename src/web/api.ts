@@ -5,6 +5,8 @@ import {
   ApiErrorResponseSchema,
   CommentSchema,
   GetDiffResponseSchema,
+  ListFilesResponseSchema,
+  FileContentSchema,
   ListCommentsResponseSchema,
   MetaSchema,
   ProjectSchema,
@@ -44,6 +46,9 @@ export function createProjectApi(projectId: string) {
   return {
     getMeta: (signal?: AbortSignal) => request(`${base}/meta`, MetaSchema, { signal }),
     getDiff: (signal?: AbortSignal) => request(`${base}/diff`, GetDiffResponseSchema, { signal }),
+    getFiles: (signal?: AbortSignal) => request(`${base}/files`, ListFilesResponseSchema, { signal }),
+    getFile: (path: string, signal?: AbortSignal) =>
+      request(`${base}/file?${new URLSearchParams({ path })}`, FileContentSchema, { signal }),
     getComments: (signal?: AbortSignal) => request(`${base}/comments?status=all`, ListCommentsResponseSchema, { signal }),
     createComment: (input: CreateCommentRequest) =>
       request(`${base}/comments`, CommentSchema, { method: "POST", ...json(input) }),

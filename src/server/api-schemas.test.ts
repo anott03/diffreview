@@ -9,6 +9,8 @@ import type {
   DiffHunk,
   DiffLine,
   GetDiffResponse,
+  ListFilesResponse,
+  FileContent,
   ListCommentsResponse,
   Meta,
   Project,
@@ -59,6 +61,8 @@ export type _Parity = [
   ...MutuallyAssignable<SType<typeof S.OpenProjectRequestSchema>, OpenProjectRequest>,
   ...MutuallyAssignable<SType<typeof S.ServerInfoSchema>, ServerInfo>,
   ...MutuallyAssignable<SType<typeof S.GetDiffResponseSchema>, GetDiffResponse>,
+  ...MutuallyAssignable<SType<typeof S.ListFilesResponseSchema>, ListFilesResponse>,
+  ...MutuallyAssignable<SType<typeof S.FileContentSchema>, FileContent>,
   ...MutuallyAssignable<SType<typeof S.ListCommentsResponseSchema>, ListCommentsResponse>,
   ...MutuallyAssignable<SType<typeof S.ApiErrorResponseSchema>, ApiErrorResponse>,
   ...MutuallyAssignable<SType<typeof S.SseEventSchema>, SseEvent>
@@ -202,6 +206,18 @@ describe("UpdateCommentRequestSchema", () => {
 });
 
 describe("response schemas", () => {
+  it("keeps working tree file contracts aligned across Effect and Zod", () => {
+    const files: ListFilesResponse = { files: ["a.txt", "nested/b.txt"] };
+    expect(Responses.ListFilesResponseSchema.parse(Schema.encodeSync(S.ListFilesResponseSchema)(files))).toEqual(files);
+    for (const kind of ["text", "binary", "too-large", "symlink", "unsupported"] as const) {
+      const file: FileContent = { path: "a.txt", kind, content: kind === "text" || kind === "symlink" ? "text" : null };
+      expect(Responses.FileContentSchema.parse(Schema.encodeSync(S.FileContentSchema)(file))).toEqual(file);
+    }
+    const invalid = { path: "a.txt", kind: "directory", content: null };
+    expect(() => Responses.FileContentSchema.parse(invalid)).toThrow();
+    expect(() => Schema.decodeUnknownSync(S.FileContentSchema)(invalid)).toThrow();
+  });
+
   it("keeps project and server contracts aligned across Effect and Zod", () => {
     const project: Project = { id: "root-hash", root: "/repo", name: "repo", openedAt: 123 };
     const info: ServerInfo = { service: "diffreview", protocolVersion: 1, instanceId: "instance", pid: 42, startedAt: 123 };

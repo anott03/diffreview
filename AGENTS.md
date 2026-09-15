@@ -74,16 +74,31 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   collapse state and scroll positions. Closing a tab discards only client state.
 - Web API clients are immutable project bindings. Abort obsolete reads and gate
   toasts by active workspace. Never share addressed-comment tracking across projects.
-- The Changes sidebar uses `web/file-tree.ts` to group canonical diff paths into
-  a folders-first tree. Folders start expanded; collapsed directory state lives
-  in App so it survives view switches and refreshes. The collapsed sidebar rail
-  keeps direct file shortcuts.
+- The file sidebar uses `web/file-tree.ts` to group canonical paths into a
+  folders-first tree. Folders start expanded; collapsed directory state lives
+  in ProjectWorkspace so it survives mode switches and refreshes. The collapsed
+  sidebar rail keeps direct file shortcuts.
+- The sidebar header switches between Changed files and All files, with
+  project-local mode state. All files uses `/api/projects/:projectId/files` to list
+  tracked and nonignored untracked working-tree files. Unchanged files open a
+  read-only `FilePreview` via `/api/projects/:projectId/file?path=...`; changed files
+  still open their diff. Reads reject traversal and symlink parents, return symlink
+  targets as text rather than following them, and cap contents at 1 MiB. The preview
+  displays at most 10,000 lines. File tree and preview reads abort on deactivation
+  and refresh on project events and reconnection.
 - The sidebar's right-edge `Sidebar.ResizeHandle` uses Kumo's built-in resizing
   (200–600px). App persists its width under `diffreview-sidebar-width` in localStorage.
-- Comments → By file reuses `FileList` and the path-based tree builder. Its files
-  and badges come from the status-filtered comment groups, including historical
-  files. Selecting a file expands and scrolls to its group. Sidebar width/open
-  state is shared with Changes; selection and directory collapse state are separate.
+- There is no separate Comments tab or comment list view. The sidebar header has
+  equal-width file mode and Open / Addressed / All dropdowns. The latter filters
+  file comments and sidebar counts without
+  hiding files. `web/comment-filter.ts` keeps Changed files scoped to the current
+  review; All files includes historical comments attached to existing project files.
+  DiffView keeps historical comments outside live anchors with saved context, and
+  FilePreview displays saved threads above file contents. Both support carry-forward.
+- The active workspace portals Collapse all and Unified / Split controls into App's
+  header immediately before the theme toggle. Their state stays project-local;
+  inactive, loading, and file-preview workspaces do not render controls there.
+  There is no middle metadata bar or workspace metadata fetch.
 - MCP verifies the global `server.json` descriptor against `/api/server`, then
   registers its invocation working tree. It does not auto-start the server.
 - `diffreview serve` runs foreground outside Git; `diffreview [open] [path]`
@@ -167,7 +182,7 @@ src/
   for short-hash pills. Migration recovers the known `current_review` mapping;
   older reviews without metadata keep an absent hash rather than guessing.
 - Legacy comments have a NULL `review_id` and stay unscoped. Missing/different
-  review IDs produce `historical: true` and are excluded from Changes (including
+  review IDs produce `historical: true` and are excluded from Changed files (including
   sidebar counts), regardless of matching code or open/addressed status.
 - PATCH `{ carryForward: true }` explicitly moves a comment into the current
   review without changing status. Matching anchors get updated line/context;
@@ -179,8 +194,8 @@ src/
   stored line number is updated to the new location (`outdated: false`).
 - If neither matches, the comment is returned as `outdated: true` and grouped in
   the UI.
-- The Comments view lists reviews independently of the current diff, including
-  committed files. `comment-context.ts` captures a bounded excerpt on the
+- All files shows saved comments on existing project files independently of the
+  current diff. `comment-context.ts` captures a bounded excerpt on the
   commented side; the store persists it in the nullable `context` JSON column
   (migrated automatically). Saved excerpt line numbers do not change when the
   live anchor moves. Legacy comments without a snapshot can receive a matching
@@ -188,11 +203,10 @@ src/
   file reads use a bounded cache keyed by commit hash and file path. Successful
   reads expire after five minutes; failures retry after five seconds. Recovered
   HEAD context remains read-time data, not a persisted snapshot.
-- Comments default to a flat list sorted by most recent creation time. The
-  By file / List toggle switches between collapsible file groups and global
-  chronological order. File groups follow their first visible comment in that
-  order; filtering happens before sorting. Grouping, sort, and collapsed
-  file-group state live in App so switching views preserves them.
+- The comment status filter defaults to Open and lives in ProjectWorkspace so
+  switching projects preserves it. Removing the list view does not delete comments
+  or change server/MCP review history APIs. Comments for paths absent from the
+  working tree and current diff remain accessible through those APIs.
 
 ### Kumo / Tailwind
 

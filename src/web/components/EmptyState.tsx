@@ -10,7 +10,7 @@ export function EmptyState({ children }: { children?: ReactNode }) {
           size="lg"
           icon={<GitDiff size={40} />}
           title="Working tree clean"
-          description="No uncommitted changes to review. Saved reviews are available in Comments."
+          description="No uncommitted changes to review. Switch to All files to browse the project and its saved comments."
         />
         {children}
       </div>

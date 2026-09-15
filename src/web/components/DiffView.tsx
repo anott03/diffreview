@@ -24,6 +24,7 @@ interface DiffViewProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onSubmitComment: (input: CreateCommentRequest) => Promise<void>;
+  onCarryForward: (id: string) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
@@ -36,6 +37,7 @@ export function DiffView({
   collapsed,
   onToggleCollapse,
   onSubmitComment,
+  onCarryForward,
   onResolve,
   onReopen,
   onDelete,
@@ -47,7 +49,7 @@ export function DiffView({
     const active: Comment[] = [];
     const outdated: Comment[] = [];
     for (const comment of comments) {
-      (comment.outdated ? outdated : active).push(comment);
+      (comment.historical || comment.outdated ? outdated : active).push(comment);
     }
     return { active, outdated };
   }, [comments]);
@@ -123,6 +125,7 @@ export function DiffView({
                   key={comment.id}
                   comment={comment}
                   showContext
+                  onCarryForward={onCarryForward}
                   onResolve={onResolve}
                   onReopen={onReopen}
                   onDelete={onDelete}

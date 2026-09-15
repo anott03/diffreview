@@ -1,26 +1,28 @@
-import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Loader } from "@cloudflare/kumo/components/loader";
+import { Select } from "@cloudflare/kumo/components/select";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Comment, CommentStatus, CreateCommentRequest, DiffFile, Meta } from "../shared/types";
+import { createPortal } from "react-dom";
+import type { Comment, CommentStatus, CreateCommentRequest, DiffFile } from "../shared/types";
 import { diffFilePath } from "../shared/types";
 import { createProjectApi } from "./api";
 import { DiffView, type Layout } from "./components/DiffView";
 import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
-import { CommentList } from "./components/CommentList";
-import type { CommentGrouping, CommentSort } from "./comment-groups";
+import { FilePreview } from "./components/FilePreview";
+import { filterComments } from "./comment-filter";
 
 interface ProjectWorkspaceProps {
   projectId: string;
   active: boolean;
   revision: number;
   connectionVersion: number;
+  toolbarContainer: HTMLDivElement | null;
 }
 
-export function ProjectWorkspace({ projectId, active, revision, connectionVersion }: ProjectWorkspaceProps) {
+export function ProjectWorkspace({ projectId, active, revision, connectionVersion, toolbarContainer }: ProjectWorkspaceProps) {
   const api = useMemo(() => createProjectApi(projectId), [projectId]);
   const toasts = useKumoToastManager();
   const toastsRef = useRef(toasts);
@@ -34,19 +36,16 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   const notify = useCallback((...args: Parameters<typeof toasts.add>) => {
     if (mounted.current && activeRef.current) toastsRef.current.add(...args);
   }, []);
-  const [meta, setMeta] = useState<Meta | null>(null);
   const [files, setFiles] = useState<DiffFile[] | null>(null);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [layout, setLayout] = useState<Layout>("unified");
-  const [view, setView] = useState<"changes" | "comments">("changes");
   const [commentStatus, setCommentStatus] = useState<CommentStatus | "all">("open");
-  const [commentSort, setCommentSort] = useState<CommentSort>("newest");
-  const [commentGrouping, setCommentGrouping] = useState<CommentGrouping>("list");
-  const [collapsedCommentPaths, setCollapsedCommentPaths] = useState<Set<string>>(new Set());
-  const [selectedCommentPath, setSelectedCommentPath] = useState<string | null>(null);
-  const [collapsedCommentDirectories, setCollapsedCommentDirectories] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [fileMode, setFileMode] = useState<"changed" | "all">("changed");
+  const [projectPaths, setProjectPaths] = useState<string[] | null>(null);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  const [treeRetry, setTreeRetry] = useState(0);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
   const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -65,8 +64,7 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
     const controller = new AbortController();
     pendingRead.current = controller;
     try {
-      const [nextMeta, diff, result] = await Promise.all([
-        api.getMeta(controller.signal),
+      const [diff, result] = await Promise.all([
         api.getDiff(controller.signal),
         api.getComments(controller.signal),
       ]);
@@ -78,7 +76,6 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
         notify({ variant: "success", title: `${addressed.length} comment${addressed.length === 1 ? "" : "s"} marked addressed` });
       }
       prevComments.current = result.comments;
-      setMeta(nextMeta);
       setFiles(diff.files);
       setReviewId(diff.reviewId);
       setComments(result.comments);
@@ -96,6 +93,18 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
     void refresh();
     return () => pendingRead.current?.abort();
   }, [active, revision, connectionVersion, refresh]);
+
+  useEffect(() => {
+    if (!active || fileMode !== "all") return;
+    const controller = new AbortController();
+    setTreeError(null);
+    void api.getFiles(controller.signal).then((result) => {
+      if (!controller.signal.aborted) setProjectPaths(result.files);
+    }).catch((cause) => {
+      if (!controller.signal.aborted) setTreeError(String(cause));
+    });
+    return () => controller.abort();
+  }, [api, active, fileMode, revision, connectionVersion, treeRetry]);
 
   const submitComment = async (input: CreateCommentRequest) => {
     try {
@@ -159,34 +168,6 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
     });
   }, []);
 
-  const toggleCommentCollapsed = useCallback((path: string) => {
-    setCollapsedCommentPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
-
-  const selectCommentFile = useCallback((path: string) => {
-    setSelectedCommentPath(path);
-    setCollapsedCommentPaths((prev) => {
-      if (!prev.has(path)) return prev;
-      const next = new Set(prev);
-      next.delete(path);
-      return next;
-    });
-  }, []);
-
-  const toggleCommentDirectory = useCallback((path: string) => {
-    setCollapsedCommentDirectories((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
-
   const toggleDirectory = useCallback((path: string) => {
     setCollapsedDirectories((prev) => {
       const next = new Set(prev);
@@ -200,10 +181,9 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
     if (!selectedPath) return;
     const el = fileRefs.current[selectedPath];
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selectedPath, view]);
+  }, [selectedPath, fileMode]);
 
-  const openCount = comments.filter((c) => c.status === "open").length;
-  const reviewComments = comments.filter((c) => c.reviewId === reviewId && !c.historical);
+  const visibleComments = filterComments(comments, reviewId, fileMode, commentStatus);
 
   if (files === null) {
     return (
@@ -221,6 +201,14 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   }
 
   const allCollapsed = files.length > 0 && files.every((file) => collapsedPaths.has(diffFilePath(file)));
+  const changesByPath = new Map(files.map((file) => [diffFilePath(file), file]));
+  const commentCounts = new Map<string, number>();
+  for (const comment of visibleComments) {
+    commentCounts.set(comment.file, (commentCounts.get(comment.file) ?? 0) + 1);
+  }
+  const sidebarPaths = fileMode === "all" ? projectPaths ?? [] : files.map(diffFilePath);
+  const sidebarTitle = fileMode === "all" ? "All files" : "Changed files";
+  const previewPath = fileMode === "all" && selectedPath && !changesByPath.has(selectedPath) ? selectedPath : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -230,31 +218,8 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
           <Button variant="secondary" size="sm" onClick={() => void refresh()}>Retry</Button>
         </div>
       )}
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2">
-        <Tabs
-          size="sm"
-          tabs={[
-            { value: "changes", label: "Changes" },
-            { value: "comments", label: `Comments (${openCount} open)` },
-          ]}
-          value={view}
-          onValueChange={(value) => {
-            if (value === "changes" || value === "comments") setView(value);
-          }}
-        />
-        {meta && (
-          <>
-            <span className="hidden max-w-64 truncate font-mono text-xs text-kumo-subtle xl:inline" title={meta.repoRoot}>{meta.repoRoot}</span>
-            <Badge variant="outline">{meta.branch}</Badge>
-            <span className="font-mono text-xs">
-              <span className="text-kumo-success">+{meta.additions}</span>{" "}
-              <span className="text-kumo-danger">−{meta.deletions}</span>
-            </span>
-          </>
-        )}
-        <span className="flex-1" />
-        {openCount > 0 && <Badge variant="warning">{openCount} open</Badge>}
-        {view === "changes" && (
+      {active && !previewPath && toolbarContainer && createPortal(
+        <div role="group" aria-label="Diff controls" className="flex shrink-0 items-center gap-3">
           <Button
             variant="secondary"
             size="sm"
@@ -263,8 +228,6 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
           >
             {allCollapsed ? "Expand all" : "Collapse all"}
           </Button>
-        )}
-        {view === "changes" && (
           <Tabs
             size="sm"
             tabs={[
@@ -276,84 +239,110 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
               if (value === "unified" || value === "split") setLayout(value);
             }}
           />
-        )}
-      </header>
+        </div>,
+        toolbarContainer
+      )}
 
       <div className="relative flex min-h-0 flex-1">
-        {view === "comments" ? (
-          <CommentList
-            comments={comments}
-            status={commentStatus}
-            sort={commentSort}
-            grouping={commentGrouping}
-            onGroupingChange={setCommentGrouping}
-            onSortChange={setCommentSort}
-            collapsedPaths={collapsedCommentPaths}
-            onToggleCollapse={toggleCommentCollapsed}
-            onStatusChange={setCommentStatus}
+        <FileList
+          title={sidebarTitle}
+          commentLabel={commentStatus === "all" ? "comments" : `${commentStatus} comments`}
+          header={(
+            <div className="grid grid-cols-2 gap-2 [&>div]:min-w-0">
+              <Select
+                size="sm"
+                className="w-full min-w-0 text-sm"
+                aria-label="Files to show"
+                value={fileMode}
+                items={{ changed: "Changed files", all: "All files" }}
+                renderValue={() => `${sidebarTitle} (${fileMode === "all" && projectPaths === null ? "…" : sidebarPaths.length})`}
+                onValueChange={(value) => {
+                  if (value === "changed" || value === "all") setFileMode(value);
+                }}
+              />
+              <Select
+                size="sm"
+                className="w-full min-w-0 text-sm"
+                aria-label="Comment status"
+                value={commentStatus}
+                items={{ open: "Open", addressed: "Addressed", all: "All" }}
+                onValueChange={(value) => {
+                  if (value === "open" || value === "addressed" || value === "all") setCommentStatus(value);
+                }}
+              />
+            </div>
+          )}
+          notice={fileMode === "all" && (
+            treeError ? (
+              <div role="alert" className="space-y-2 px-3 py-2 text-sm">
+                <p className="break-words">Could not load files. {treeError}</p>
+                <Button variant="secondary" size="sm" onClick={() => setTreeRetry((value) => value + 1)}>Retry</Button>
+              </div>
+            ) : projectPaths === null ? (
+              <div role="status" className="flex items-center gap-2 px-3 py-2 text-sm"><Loader />Loading files…</div>
+            ) : projectPaths.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-kumo-subtle">No project files.</p>
+            ) : null
+          )}
+          files={sidebarPaths.map((path) => {
+            const entry = { path, commentCount: commentCounts.get(path) ?? 0 };
+            const change = changesByPath.get(path);
+            return change ? { ...entry, change } : entry;
+          })}
+          selectedPath={selectedPath}
+          onSelect={selectFile}
+          collapsedDirectories={collapsedDirectories}
+          onToggleDirectory={toggleDirectory}
+        />
+        {previewPath && (
+          <FilePreview
+            key={previewPath}
+            path={previewPath}
+            active={active}
+            revision={revision}
+            connectionVersion={connectionVersion}
+            loadFile={api.getFile}
+            comments={visibleComments.filter((comment) => comment.file === previewPath)}
             onCarryForward={carryForwardComment}
             onResolve={resolveComment}
             onReopen={reopenComment}
             onDelete={deleteComment}
-            selectedPath={selectedCommentPath}
-            onSelectFile={selectCommentFile}
-            collapsedDirectories={collapsedCommentDirectories}
-            onToggleDirectory={toggleCommentDirectory}
           />
-        ) : files.length === 0 ? (
-          <div className="flex-1">
-            <EmptyState>
-              {openCount > 0 && (
-                <Button variant="secondary" onClick={() => {
-                  setCommentStatus("open");
-                  setView("comments");
-                }}>
-                  View {openCount} open comment{openCount === 1 ? "" : "s"}
-                </Button>
-              )}
-            </EmptyState>
-          </div>
-        ) : (
-          <>
-            <FileList
-              files={files.map((file) => ({
-                path: diffFilePath(file),
-                change: file,
-                commentCount: reviewComments.filter((comment) => comment.file === diffFilePath(file) && comment.status === "open").length,
-              }))}
-              selectedPath={selectedPath}
-              onSelect={selectFile}
-              collapsedDirectories={collapsedDirectories}
-              onToggleDirectory={toggleDirectory}
-            />
-            <main className="min-w-0 flex-1 overflow-y-auto [overflow-anchor:none]">
-              {files.map((file) => {
-                const path = diffFilePath(file);
-                return (
-                  <div
-                    key={`${reviewId}:${path}`}
-                    id={`${projectId}:${path}`}
-                    ref={(el) => {
-                      fileRefs.current[path] = el;
-                    }}
-                  >
-                    <DiffView
-                      file={file}
-                      layout={layout}
-                      comments={reviewComments.filter((c) => c.file === path)}
-                      collapsed={collapsedPaths.has(path)}
-                      onToggleCollapse={() => toggleCollapsed(path)}
-                      onSubmitComment={submitComment}
-                      onResolve={resolveComment}
-                      onReopen={reopenComment}
-                      onDelete={deleteComment}
-                    />
-                  </div>
-                );
-              })}
-            </main>
-          </>
         )}
+        <main hidden={previewPath !== null} className="min-w-0 flex-1 overflow-y-auto [overflow-anchor:none]">
+          {files.length === 0 && (
+            fileMode === "all" ? (
+              <p className="px-4 py-6 text-sm text-kumo-subtle">Select a file to preview its contents.</p>
+            ) : (
+              <EmptyState />
+            )
+          )}
+          {files.map((file) => {
+            const path = diffFilePath(file);
+            return (
+              <div
+                key={`${reviewId}:${path}`}
+                id={`${projectId}:${path}`}
+                ref={(el) => {
+                  fileRefs.current[path] = el;
+                }}
+              >
+                <DiffView
+                  file={file}
+                  layout={layout}
+                  comments={visibleComments.filter((c) => c.file === path)}
+                  onCarryForward={carryForwardComment}
+                  collapsed={collapsedPaths.has(path)}
+                  onToggleCollapse={() => toggleCollapsed(path)}
+                  onSubmitComment={submitComment}
+                  onResolve={resolveComment}
+                  onReopen={reopenComment}
+                  onDelete={deleteComment}
+                />
+              </div>
+            );
+          })}
+        </main>
       </div>
     </div>
   );

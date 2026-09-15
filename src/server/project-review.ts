@@ -1,5 +1,5 @@
 import { Cache, Context, Effect, Exit, Layer, flow } from "effect";
-import type { Comment, CreateCommentRequest, GetDiffResponse, ListCommentsResponse, Meta, UpdateCommentRequest } from "../shared/types";
+import type { Comment, CreateCommentRequest, FileContent, GetDiffResponse, ListCommentsResponse, ListFilesResponse, Meta, UpdateCommentRequest } from "../shared/types";
 import { BadRequestError, InternalError, NotFoundError } from "./api";
 import { contextFromDiff, contextFromHead } from "./comment-context";
 import { ProjectConfig } from "./config";
@@ -8,6 +8,7 @@ import { errMessage } from "./error-message";
 import { Git } from "./git";
 import { CommentStore, type CommentFilter, type CreateCommentInput, type UpdateCommentInput } from "./store";
 import { Watcher } from "./watcher";
+import { isWorkingTreePath, listWorkingTreeFiles, readWorkingTreeFile } from "./worktree-files";
 
 const toError = flow(errMessage, (error) => Effect.fail(new InternalError({ error })));
 type ReviewError = BadRequestError | InternalError | NotFoundError;
@@ -20,6 +21,8 @@ export interface CommentQuery {
 export class ProjectReview extends Context.Service<ProjectReview, {
   readonly meta: Effect.Effect<Meta, InternalError>;
   readonly diff: Effect.Effect<GetDiffResponse, InternalError>;
+  readonly listFiles: Effect.Effect<ListFilesResponse, InternalError>;
+  file(path: string): Effect.Effect<FileContent, ReviewError>;
   listComments(query: CommentQuery): Effect.Effect<ListCommentsResponse, ReviewError>;
   createComment(input: CreateCommentRequest): Effect.Effect<Comment, ReviewError>;
   updateComment(id: string, input: UpdateCommentRequest): Effect.Effect<Comment, ReviewError>;
@@ -38,7 +41,24 @@ export class ProjectReview extends Context.Service<ProjectReview, {
       }
     );
 
+    const listFiles = Effect.gen(function*() {
+      const output = yield* Effect.catch(git.run(config.repoRoot, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]), toError);
+      return { files: listWorkingTreeFiles(config.repoRoot, output) };
+    });
+
     return ProjectReview.of({
+      listFiles,
+      file: Effect.fn("ProjectReview.file")(function*(path: string) {
+        if (!isWorkingTreePath(path)) {
+          return yield* Effect.fail(new BadRequestError({ error: "invalid file path" }));
+        }
+        const { files } = yield* listFiles;
+        if (!files.includes(path)) return yield* Effect.fail(new NotFoundError({ error: "file not found" }));
+        return yield* Effect.try({
+          try: () => readWorkingTreeFile(config.repoRoot, path),
+          catch: () => new NotFoundError({ error: "file not found" })
+        });
+      }),
       meta: Effect.gen(function*() {
         const { files } = yield* Effect.catch(watcher.snapshot, toError);
         return yield* Effect.catch(git.getMeta(config.repoRoot, files), toError);

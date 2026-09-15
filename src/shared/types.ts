@@ -146,6 +146,16 @@ export interface GetDiffResponse {
   reviewId: string;
 }
 
+export interface ListFilesResponse {
+  files: string[];
+}
+
+export interface FileContent {
+  path: string;
+  content: string | null;
+  kind: "text" | "binary" | "too-large" | "symlink" | "unsupported";
+}
+
 export interface ListCommentsResponse {
   comments: Comment[];
 }

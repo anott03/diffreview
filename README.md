@@ -6,13 +6,18 @@ agents can read and mark as addressed through MCP.
 ## Features
 
 - Review staged, unstaged, and untracked changes against HEAD in unified or split view.
+- Switch the sidebar between Changed files and All files. All files includes tracked
+  and nonignored untracked files. Changed files open their diff; unchanged files have
+  a read-only text preview, limited to 1 MiB and 10,000 displayed lines.
 - Open multiple working trees in project tabs, with a picker for recent projects.
 - Keep selections, filters, collapsed files, scroll positions, and editor drafts
   when switching project tabs. Closing a tab discards its local workspace, not its comments.
 - Add inline comments that re-anchor by content as code moves.
-- Browse comments after commits, including saved code excerpts and review hashes.
+- Filter file comments by Open, Addressed, or All beside the sidebar's file selector.
+  All files also shows saved comments on existing project files after commits,
+  including their code excerpts and review hashes.
 - Each observed HEAD change starts a project-local review. Historical comments
-  stay in Comments until explicitly carried forward. Resolve and Reopen change
+  remain attached to files in All files until explicitly carried forward. Resolve and Reopen change
   status without changing review membership.
 - Receive live diff and comment updates through one browser SSE connection.
 - Let agents use `get_diff_summary`, `get_diff`, `list_review_comments`, and

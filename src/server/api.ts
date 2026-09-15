@@ -54,6 +54,17 @@ export class ApiGroup extends HttpApiGroup.make("api")
     success: S.GetDiffResponseSchema,
     error: projectErrors
   }))
+  .add(HttpApiEndpoint.get("listFiles", "/projects/:projectId/files", {
+    params: projectParams,
+    success: S.ListFilesResponseSchema,
+    error: projectErrors
+  }))
+  .add(HttpApiEndpoint.get("file", "/projects/:projectId/file", {
+    params: projectParams,
+    query: { path: Schema.String },
+    success: S.FileContentSchema,
+    error: reviewErrors
+  }))
   .add(HttpApiEndpoint.get("listComments", "/projects/:projectId/comments", {
     params: projectParams,
     query: { status: Schema.optional(Schema.String), file: Schema.optional(Schema.String) },

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Layer, Schema } from "effect";
@@ -64,13 +64,51 @@ describe("project-scoped HTTP", () => {
       service: "diffreview", protocolVersion: 1, instanceId: "multi-project-test", pid: process.pid, startedAt: 123
     });
     expect((await decode(await request("/projects"), S.ListProjectsResponseSchema)).projects).toHaveLength(2);
-    for (const path of ["/meta", "/diff", "/comments", "/projects/nope/meta", "/projects/nope/diff", "/projects/nope/comments"]) {
+    for (const path of ["/meta", "/diff", "/comments", "/files", "/file?path=same.txt", "/projects/nope/meta", "/projects/nope/diff", "/projects/nope/comments", "/projects/nope/files", "/projects/nope/file?path=same.txt"]) {
       expect((await request(path)).status).toBe(404);
     }
     for (const path of ["", "   ", directory, join(directory, "missing")]) {
       const response = await request("/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
       expect(response.status).toBe(400);
       expect((await decode(response, S.ApiErrorResponseSchema)).error.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("isolates current file listings and content, rejecting unlisted files and escaping paths", async () => {
+    const a = projects[0]!;
+    const b = projects[1]!;
+    await writeFile(join(repos[0]!, "only-a.txt"), "private to a\n");
+    await writeFile(join(repos[0]!, ".gitignore"), "ignored.txt\n");
+    await writeFile(join(repos[0]!, "ignored.txt"), "ignored secret\n");
+    await symlink(repos[1]!, join(repos[0]!, "other-project"));
+    try {
+      for (const [i, project] of projects.entries()) {
+        const response = await scoped(project, "/files");
+        expect(response.status).toBe(200);
+        const { files } = await decode(response, S.ListFilesResponseSchema);
+        expect(files).toContain("same.txt");
+        expect(files.includes("only-a.txt")).toBe(i === 0);
+        expect(files).not.toContain("ignored.txt");
+        expect(files.some((file) => file.startsWith(".git/"))).toBe(false);
+        expect(await decode(await scoped(project, "/file?path=same.txt"), S.FileContentSchema)).toEqual({
+          path: "same.txt", kind: "text", content: `project-${i}\n`
+        });
+      }
+      expect((await scoped(b, "/file?path=only-a.txt")).status).toBe(404);
+      for (const path of ["ignored.txt", "missing.txt", "other-project/same.txt"]) {
+        expect((await scoped(a, `/file?${new URLSearchParams({ path })}`)).status).toBe(404);
+      }
+      for (const path of ["", "../b/same.txt", join(repos[1]!, "same.txt"), ".git/config", "other-project/../same.txt"]) {
+        expect((await scoped(a, `/file?${new URLSearchParams({ path })}`)).status).toBe(400);
+      }
+      expect((await scoped(a, "/file")).status).toBe(400);
+      expect(await decode(await scoped(a, "/file?path=other-project"), S.FileContentSchema)).toEqual({
+        path: "other-project", kind: "symlink", content: repos[1]
+      });
+    } finally {
+      for (const path of ["only-a.txt", ".gitignore", "ignored.txt", "other-project"]) {
+        await rm(join(repos[0]!, path), { force: true });
+      }
     }
   });
 
@@ -131,6 +169,10 @@ describe("project-scoped HTTP", () => {
       await app.dispose();
       app = makeApp();
       expect((await scoped(a, "/diff")).status).toBe(503);
+      expect((await scoped(a, "/files")).status).toBe(503);
+      expect((await scoped(a, "/file?path=same.txt")).status).toBe(503);
+      expect((await scoped(b, "/files")).status).toBe(200);
+      expect((await scoped(b, "/file?path=same.txt")).status).toBe(200);
       expect((await scoped(b, "/diff")).status).toBe(200);
       expect((await decode(await request("/projects"), S.ListProjectsResponseSchema)).projects).toHaveLength(2);
     } finally {

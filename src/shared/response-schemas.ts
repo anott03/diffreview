@@ -4,6 +4,8 @@ import type {
   Comment,
   DiffFile,
   GetDiffResponse,
+  ListFilesResponse,
+  FileContent,
   ListCommentsResponse,
   Meta,
   Project,
@@ -68,6 +70,16 @@ export const GetDiffResponseSchema = z.object({
   files: z.array(DiffFileSchema),
   reviewId: z.string(),
 }) satisfies z.ZodType<GetDiffResponse>;
+
+export const ListFilesResponseSchema = z.object({
+  files: z.array(z.string()),
+}) satisfies z.ZodType<ListFilesResponse>;
+
+export const FileContentSchema = z.object({
+  path: z.string(),
+  content: z.string().nullable(),
+  kind: z.enum(["text", "binary", "too-large", "symlink", "unsupported"]),
+}) satisfies z.ZodType<FileContent>;
 
 export const ListCommentsResponseSchema = z.object({
   comments: z.array(CommentSchema),

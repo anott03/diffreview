@@ -49,6 +49,7 @@ export function App() {
     return saved === null ? window.matchMedia("(min-width: 768px)").matches : saved !== "false";
   });
   const tabButtons = useRef(new Map<string | null, HTMLButtonElement>());
+  const [toolbarContainer, setToolbarContainer] = useState<HTMLDivElement | null>(null);
 
   const refreshProjects = useCallback(async () => {
     catalogRequest.current?.abort();
@@ -147,7 +148,7 @@ export function App() {
 
   return (
     <div className="flex h-full min-w-0 flex-col text-sm">
-      <header className="flex shrink-0 items-center gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-1.5">
+      <header className="flex shrink-0 items-center gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-1">
         <span className="shrink-0 font-semibold">diffreview</span>
         <div role="tablist" aria-label="Projects" aria-orientation="horizontal" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         <Button
@@ -158,7 +159,7 @@ export function App() {
           tabIndex={tabs.activeId === null ? 0 : -1}
           ref={(element) => { if (element) tabButtons.current.set(null, element); else tabButtons.current.delete(null); }}
           variant="ghost"
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-sm ${tabs.activeId === null ? "ring ring-inset ring-kumo-line" : ""}`}
+          className={`shrink-0 rounded-lg px-3 py-1 text-sm h-7 ${tabs.activeId === null ? "ring ring-inset ring-kumo-line [[data-mode=light]_&]:bg-kumo-fill [[data-mode=light]_&]:hover:bg-kumo-fill [[data-mode=light]_&]:ring-kumo-interact" : ""}`}
           icon={PlusIcon}
           onClick={() => navigate(null)}
           onKeyDown={(event) => handleTabKey(event, null)}
@@ -168,7 +169,7 @@ export function App() {
           const selected = tabs.activeId === id;
           const name = project?.name ?? (projects === null ? "Loading project…" : "Unavailable project");
           return (
-            <div key={id} role="presentation" className={`group/tab flex w-44 shrink-0 items-center rounded-lg ${selected ? "bg-kumo-tint ring ring-inset ring-kumo-line" : "hover:bg-kumo-tint focus-within:bg-kumo-tint"}`}>
+            <div key={id} role="presentation" className={`group/tab flex w-52 shrink-0 items-center rounded-lg ${selected ? "bg-kumo-tint ring ring-inset ring-kumo-line [[data-mode=light]_&]:bg-kumo-fill [[data-mode=light]_&]:ring-kumo-interact" : "hover:bg-kumo-tint focus-within:bg-kumo-tint"}`}>
               <Button
                 id={`project-tab-${id}`}
                 role="tab"
@@ -177,7 +178,7 @@ export function App() {
                 tabIndex={selected ? 0 : -1}
                 ref={(element) => { if (element) tabButtons.current.set(id, element); else tabButtons.current.delete(id); }}
                 variant="ghost"
-                className="min-w-0 flex-1 justify-start text-left text-sm hover:bg-transparent group-focus-visible:ring-2"
+                className="h-7 min-w-0 flex-1 justify-start text-left text-sm hover:bg-transparent group-focus-visible:ring-2"
                 title={project?.root ?? id}
                 aria-label={project ? `${project.name}, ${project.root}` : `${name}, ${id}`}
                 onClick={() => navigate(id)}
@@ -188,7 +189,7 @@ export function App() {
                 size="sm"
                 shape="square"
                 icon={XIcon}
-                className="mr-1 shrink-0 hidden group-hover/tab:block group-focus-within/tab:block"
+                className="shrink-0 hidden group-hover/tab:block group-focus-within/tab:block"
                 tabIndex={selected ? 0 : -1}
                 aria-label={`Close ${project?.name ?? id} tab`}
                 title="Close tab. Project history is kept."
@@ -201,6 +202,7 @@ export function App() {
         <span role="status" className="shrink-0 text-kumo-subtle">
           {connection === "disconnected" ? "Reconnecting…" : connection === "connecting" ? "Connecting…" : ""}
         </span>
+        <div ref={setToolbarContainer} className="contents" />
         <ThemeToggle />
       </header>
       <Sidebar.Provider
@@ -221,7 +223,7 @@ export function App() {
           </div>
           {tabs.ids.map((id) => (
             <div key={id} id={`project-panel-${id}`} role="tabpanel" aria-labelledby={`project-tab-${id}`} tabIndex={0} hidden={tabs.activeId !== id} inert={tabs.activeId !== id} className={tabs.activeId === id ? "h-full min-w-0" : "hidden"}>
-              <ProjectWorkspace projectId={id} active={tabs.activeId === id} revision={revisions[id] ?? 0} connectionVersion={connectionVersion} />
+              <ProjectWorkspace projectId={id} active={tabs.activeId === id} revision={revisions[id] ?? 0} connectionVersion={connectionVersion} toolbarContainer={toolbarContainer} />
             </div>
           ))}
         </div>
