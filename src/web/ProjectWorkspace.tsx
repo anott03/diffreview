@@ -255,7 +255,6 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
                 aria-label="Files to show"
                 value={fileMode}
                 items={{ changed: "Changed files", all: "All files" }}
-                renderValue={() => `${sidebarTitle} (${fileMode === "all" && projectPaths === null ? "…" : sidebarPaths.length})`}
                 onValueChange={(value) => {
                   if (value === "changed" || value === "all") setFileMode(value);
                 }}

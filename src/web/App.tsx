@@ -218,11 +218,11 @@ export function App() {
         className="min-h-0 min-w-0 flex-1"
       >
         <div className="min-h-0 min-w-0 flex-1">
-          <div id="project-panel-home" role="tabpanel" aria-labelledby="project-tab-home" tabIndex={0} hidden={tabs.activeId !== null} inert={tabs.activeId !== null} className={tabs.activeId === null ? "h-full" : "hidden"}>
+          <div id="project-panel-home" role="tabpanel" aria-labelledby="project-tab-home" tabIndex={0} hidden={tabs.activeId !== null} inert={tabs.activeId !== null} className={tabs.activeId === null ? "h-full outline-none" : "hidden"}>
             <ProjectPicker projects={projects} error={catalogError} onRetry={() => void refreshProjects()} onOpen={openProject} onSelect={navigate} />
           </div>
           {tabs.ids.map((id) => (
-            <div key={id} id={`project-panel-${id}`} role="tabpanel" aria-labelledby={`project-tab-${id}`} tabIndex={0} hidden={tabs.activeId !== id} inert={tabs.activeId !== id} className={tabs.activeId === id ? "h-full min-w-0" : "hidden"}>
+            <div key={id} id={`project-panel-${id}`} role="tabpanel" aria-labelledby={`project-tab-${id}`} tabIndex={0} hidden={tabs.activeId !== id} inert={tabs.activeId !== id} className={tabs.activeId === id ? "h-full min-w-0 outline-none" : "hidden"}>
               <ProjectWorkspace projectId={id} active={tabs.activeId === id} revision={revisions[id] ?? 0} connectionVersion={connectionVersion} toolbarContainer={toolbarContainer} />
             </div>
           ))}
