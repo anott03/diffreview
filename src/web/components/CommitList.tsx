@@ -52,7 +52,7 @@ export function CommitList({
         )}
       </div>
       <Sidebar.Content>
-        {error ? (
+        {error && (commits === null || commits.length === 0) ? (
           <div role="alert" className="space-y-2 px-3 py-2 text-sm">
             <p className="break-words">Could not load history. {error}</p>
             <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>
@@ -89,6 +89,12 @@ export function CommitList({
               </Sidebar.MenuItem>
             ))}
           </Sidebar.Menu>
+        )}
+        {commits !== null && commits.length > 0 && error && (
+          <div className="space-y-2 border-t border-kumo-line p-2">
+            <p className="break-words px-1 text-xs text-kumo-subtle">Could not load more commits. {error}</p>
+            <Button variant="secondary" size="sm" className="w-full" onClick={onRetry}>Retry</Button>
+          </div>
         )}
         {hasMore && !error && commits !== null && (
           <div className="border-t border-kumo-line p-2">

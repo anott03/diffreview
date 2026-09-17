@@ -43,22 +43,23 @@ interface RawState {
 
 /**
  * Machine-readable `git log` format. NUL separates fields within a record and
- * newlines separate records; none of the chosen fields may contain NUL bytes,
- * and `%s` (the commit subject) cannot contain a newline either.
+ * STX (`%x02`) separates records, so a newline embedded in an ident does not
+ * misalign subsequent records. None of the chosen fields may contain NUL.
  */
-const COMMIT_LOG_FORMAT = "%H%x00%s%x00%an%x00%ae%x00%at%x00%P";
+const COMMIT_LOG_FORMAT = "%H%x00%s%x00%an%x00%ae%x00%at%x00%P%x00%x02";
 
 function parseCommitLog(out: string): CommitSummary[] {
-  return out.split("\n").filter(Boolean).map((record) => {
-    const [id, subject, author, authorEmail, date, parents] = record.split("\0");
-    return {
-      id: id ?? "",
+  return out.split("\x02").flatMap((record) => {
+    const [id, subject, author, authorEmail, date, parents] = record.trim().split("\0");
+    if (!id) return [];
+    return [{
+      id,
       subject: subject ?? "",
       author: author ?? "",
       authorEmail: authorEmail ?? "",
       date: Number(date ?? "0") * 1000,
       parents: (parents ?? "").split(" ").filter(Boolean)
-    };
+    }];
   });
 }
 
@@ -249,8 +250,12 @@ export class Git extends Context.Service<Git, {
       });
 
       const getCommitDiff = Effect.fn("Git.getCommitDiff")(function*(root: string, commitId: string) {
+        // `-m --first-parent` makes merge commits diff against their first
+        // parent instead of producing a combined (`@@@`) diff, which parse-diff
+        // cannot parse. Non-merge commits are unaffected.
         const text = yield* run(root, [
-          "show", "--no-color", "--find-renames", "--no-ext-diff", "--format=", commitId
+          "show", "--no-color", "--find-renames", "--no-ext-diff", "--format=",
+          "--first-parent", "-m", commitId
         ]);
         return parseGitDiff(text);
       });

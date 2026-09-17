@@ -8,6 +8,7 @@ import { CommitList, formatCommitDate } from "./CommitList";
 import type { Layout } from "./DiffView";
 
 const COMMIT_PAGE_SIZE = 200;
+const COMMIT_FETCH_SIZE = COMMIT_PAGE_SIZE + 1;
 
 export interface CommitHistoryApi {
   getCommits(limit: number, offset: number, signal?: AbortSignal): Promise<ListCommitsResponse>;
@@ -37,10 +38,13 @@ export function CommitHistory({ api, active, layout, header }: CommitHistoryProp
     if (!active) return;
     const controller = new AbortController();
     setCommitsError(null);
-    void api.getCommits(COMMIT_PAGE_SIZE, offset, controller.signal).then((result) => {
+    void api.getCommits(COMMIT_FETCH_SIZE, offset, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
-      setCommits((previous) => offset === 0 ? result.commits : [...(previous ?? []), ...result.commits]);
-      setHasMore(result.commits.length === COMMIT_PAGE_SIZE);
+      // Fetch one extra commit as a sentinel so an exact page boundary never
+      // leaves a "Load more" button that yields an empty page.
+      const page = result.commits.slice(0, COMMIT_PAGE_SIZE);
+      setCommits((previous) => offset === 0 ? page : [...(previous ?? []), ...page]);
+      setHasMore(result.commits.length > COMMIT_PAGE_SIZE);
     }).catch((cause) => {
       if (!controller.signal.aborted) setCommitsError(String(cause));
     });
