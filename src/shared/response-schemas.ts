@@ -2,11 +2,14 @@ import { z } from "zod";
 import type {
   ApiErrorResponse,
   Comment,
+  CommitSummary,
   DiffFile,
+  GetCommitDiffResponse,
   GetDiffResponse,
   ListFilesResponse,
   FileContent,
   ListCommentsResponse,
+  ListCommitsResponse,
   Meta,
   Project,
   ListProjectsResponse,
@@ -70,6 +73,23 @@ export const GetDiffResponseSchema = z.object({
   files: z.array(DiffFileSchema),
   reviewId: z.string(),
 }) satisfies z.ZodType<GetDiffResponse>;
+
+export const CommitSummarySchema = z.object({
+  id: z.string(),
+  subject: z.string(),
+  author: z.string(),
+  authorEmail: z.string(),
+  date: z.number(),
+  parents: z.array(z.string()),
+}) satisfies z.ZodType<CommitSummary>;
+
+export const ListCommitsResponseSchema = z.object({
+  commits: z.array(CommitSummarySchema),
+}) satisfies z.ZodType<ListCommitsResponse>;
+
+export const GetCommitDiffResponseSchema = z.object({
+  files: z.array(DiffFileSchema),
+}) satisfies z.ZodType<GetCommitDiffResponse>;
 
 export const ListFilesResponseSchema = z.object({
   files: z.array(z.string()),

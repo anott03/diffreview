@@ -157,6 +157,23 @@ export const MetaSchema = Schema.Struct({
   deletions: Schema.Number
 });
 
+export const CommitSummarySchema = Schema.Struct({
+  id: Schema.String,
+  subject: Schema.String,
+  author: Schema.String,
+  authorEmail: Schema.String,
+  date: Schema.Number,
+  parents: ArrayOf(Schema.String)
+});
+
+export const ListCommitsResponseSchema = Schema.Struct({
+  commits: ArrayOf(CommitSummarySchema)
+});
+
+export const GetCommitDiffResponseSchema = Schema.Struct({
+  files: ArrayOf(DiffFileSchema)
+});
+
 export const GetDiffResponseSchema = Schema.Struct({
   files: ArrayOf(DiffFileSchema),
   reviewId: Schema.String

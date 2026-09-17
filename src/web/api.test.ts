@@ -65,6 +65,20 @@ describe("project-bound requests", () => {
     await expect(api.getFile("a")).rejects.toThrow();
   });
 
+  it("binds commit history endpoints to the project and encodes commit ids", async () => {
+    const fetcher = vi.fn(async (url: string, _init?: RequestInit) => url.includes("/commits/")
+      ? Response.json({ files: [] })
+      : Response.json({ commits: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    const api = createProjectApi("project/a");
+    const controller = new AbortController();
+    expect(await api.getCommits(200, 0, controller.signal)).toEqual({ commits: [] });
+    expect(await api.getCommitDiff("abc123", controller.signal)).toEqual({ files: [] });
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/api/projects/project%2Fa/commits?limit=200&offset=0");
+    expect(fetcher.mock.calls[1]?.[0]).toBe("/api/projects/project%2Fa/commits/abc123/diff");
+    expect(fetcher.mock.calls.every(([, init]) => init?.signal === controller.signal)).toBe(true);
+  });
+
   it("surfaces unavailable project errors rather than returning empty data", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ error: "Working tree is missing" }, { status: 503 }));
     await expect(createProjectApi("missing").getDiff()).rejects.toThrow("Working tree is missing");

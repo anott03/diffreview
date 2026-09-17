@@ -41,6 +41,8 @@ export const ApiHandlers = HttpApiBuilder.group(Api, "api", Effect.fn(function*(
     .handle("meta", ({ params }) => Effect.flatMap(registry.get(params.projectId), ({ review }) => review.meta))
     .handle("diff", ({ params }) => Effect.flatMap(registry.get(params.projectId), ({ review }) => review.diff))
     .handle("listFiles", ({ params }) => Effect.flatMap(registry.get(params.projectId), ({ review }) => review.listFiles))
+    .handle("listCommits", ({ params, query }) => Effect.flatMap(registry.get(params.projectId), ({ review }) => review.listCommits(query)))
+    .handle("getCommitDiff", ({ params }) => Effect.flatMap(registry.get(params.projectId), ({ review }) => review.getCommitDiff(params.commitId)))
     .handle("file", ({ params, query }) => Effect.flatMap(registry.get(params.projectId), ({ review }) => review.file(query.path, {
       context: query.context === "true", reviewId: query.reviewId
     })))

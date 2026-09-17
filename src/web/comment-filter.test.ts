@@ -36,4 +36,9 @@ describe("file comment filtering", () => {
     expect(filterComments([comment("historical", "open", "current", true)], "current", "changed", "all")).toEqual([]);
     expect(filterComments([], "current", "all", "all")).toEqual([]);
   });
+
+  it("hides comments in commit history mode", () => {
+    expect(filterComments(comments, "current", "history", "all")).toEqual([]);
+    expect(filterComments(comments, "current", "history", "open")).toEqual([]);
+  });
 });

@@ -1,5 +1,5 @@
 import { Cache, Context, Effect, Exit, Layer, flow } from "effect";
-import type { Comment, CommentSide, CreateCommentRequest, DiffFile, DiffLine, FileContent, GetDiffResponse, ListCommentsResponse, ListFilesResponse, Meta, UpdateCommentRequest } from "../shared/types";
+import type { Comment, CommentSide, CreateCommentRequest, DiffFile, DiffLine, FileContent, GetCommitDiffResponse, GetDiffResponse, ListCommentsResponse, ListCommitsResponse, ListFilesResponse, Meta, UpdateCommentRequest } from "../shared/types";
 import { diffFilePath } from "../shared/types";
 import { BadRequestError, InternalError, NotFoundError } from "./api";
 import { contextFromDiff, contextFromHead } from "./comment-context";
@@ -27,10 +27,17 @@ export interface CommentQuery {
   file?: string | undefined;
 }
 
+export interface CommitQuery {
+  limit?: string | undefined;
+  offset?: string | undefined;
+}
+
 export class ProjectReview extends Context.Service<ProjectReview, {
   readonly meta: Effect.Effect<Meta, InternalError>;
   readonly diff: Effect.Effect<GetDiffResponse, InternalError>;
   readonly listFiles: Effect.Effect<ListFilesResponse, InternalError>;
+  listCommits(query: CommitQuery): Effect.Effect<ListCommitsResponse, ReviewError>;
+  getCommitDiff(commitId: string): Effect.Effect<GetCommitDiffResponse, ReviewError>;
   file(path: string, options?: FileOptions): Effect.Effect<FileContent, ReviewError>;
   listComments(query: CommentQuery): Effect.Effect<ListCommentsResponse, ReviewError>;
   createComment(input: CreateCommentRequest): Effect.Effect<Comment, ReviewError>;
@@ -118,8 +125,40 @@ export class ProjectReview extends Context.Service<ProjectReview, {
       return { files: expanded, complete };
     });
 
+    const queryInt = (
+      value: string | undefined,
+      fallback: number,
+      min: number,
+      max: number,
+      name: string
+    ): Effect.Effect<number, BadRequestError> => Effect.gen(function*() {
+      if (value === undefined) return fallback;
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+        return yield* Effect.fail(new BadRequestError({ error: `invalid ${name}: ${value}` }));
+      }
+      return parsed;
+    });
+
     return ProjectReview.of({
       listFiles,
+      listCommits: Effect.fn("ProjectReview.listCommits")(function*(query: CommitQuery) {
+        const limit = yield* queryInt(query.limit, 200, 1, 1000, "limit");
+        const offset = yield* queryInt(query.offset, 0, 0, 1_000_000, "offset");
+        const hasHead = yield* Effect.catch(git.hasHead(config.repoRoot), toError);
+        if (!hasHead) return { commits: [] };
+        const commits = yield* Effect.catch(git.listCommits(config.repoRoot, { limit, offset }), toError);
+        return { commits };
+      }),
+      getCommitDiff: Effect.fn("ProjectReview.getCommitDiff")(function*(commitId: string) {
+        if (!/^[0-9a-fA-F]{4,40}$/.test(commitId)) {
+          return yield* Effect.fail(new BadRequestError({ error: "invalid commit id" }));
+        }
+        const exists = yield* Effect.catch(git.hasCommit(config.repoRoot, commitId), toError);
+        if (!exists) return yield* Effect.fail(new NotFoundError({ error: "commit not found" }));
+        const files = yield* Effect.catch(git.getCommitDiff(config.repoRoot, commitId), toError);
+        return { files };
+      }),
       file: Effect.fn("ProjectReview.file")(function*(path: string, options?: FileOptions) {
         if (!isWorkingTreePath(path)) {
           return yield* Effect.fail(new BadRequestError({ error: "invalid file path" }));

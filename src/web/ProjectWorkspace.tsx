@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import type { Comment, CommentStatus, CreateCommentRequest, DiffFile } from "../shared/types";
 import { diffFilePath } from "../shared/types";
 import { createProjectApi } from "./api";
+import { CommitHistory } from "./components/CommitHistory";
 import { DiffView, type Layout } from "./components/DiffView";
 import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
@@ -52,7 +53,7 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   const [layout, setLayout] = useState<Layout>("unified");
   const [commentStatus, setCommentStatus] = useState<CommentStatus | "all">("open");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [fileMode, setFileMode] = useState<"changed" | "all">("changed");
+  const [fileMode, setFileMode] = useState<"changed" | "all" | "history">("changed");
   const [projectPaths, setProjectPaths] = useState<string[] | null>(null);
   const [treeError, setTreeError] = useState<string | null>(null);
   const [treeRetry, setTreeRetry] = useState(0);
@@ -216,9 +217,22 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   for (const comment of visibleComments) {
     commentCounts.set(comment.file, (commentCounts.get(comment.file) ?? 0) + 1);
   }
+  const historyMode = fileMode === "history";
   const sidebarPaths = fileMode === "all" ? projectPaths ?? [] : files.map(diffFilePath);
-  const sidebarTitle = fileMode === "all" ? "All files" : "Changed files";
+  const sidebarTitle = fileMode === "all" ? "All files" : historyMode ? "Commits" : "Changed files";
   const previewPath = fileMode === "all" && selectedPath && !changesByPath.has(selectedPath) ? selectedPath : null;
+  const fileModeSelect = (
+    <Select
+      size="sm"
+      className="w-full min-w-0 text-sm"
+      aria-label="Sidebar view"
+      value={fileMode}
+      items={{ changed: "Changed files", all: "All files", history: "Commits" }}
+      onValueChange={(value) => {
+        if (value === "changed" || value === "all" || value === "history") setFileMode(value);
+      }}
+    />
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -230,14 +244,16 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
       )}
       {active && !previewPath && toolbarContainer && createPortal(
         <div role="group" aria-label="Diff controls" className="flex shrink-0 items-center gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={files.length === 0}
-            onClick={() => setCollapsedPaths(allCollapsed ? new Set() : new Set(files.map(diffFilePath)))}
-          >
-            {allCollapsed ? "Expand all" : "Collapse all"}
-          </Button>
+          {!historyMode && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={files.length === 0}
+              onClick={() => setCollapsedPaths(allCollapsed ? new Set() : new Set(files.map(diffFilePath)))}
+            >
+              {allCollapsed ? "Expand all" : "Collapse all"}
+            </Button>
+          )}
           <Tabs
             size="sm"
             tabs={[
@@ -254,114 +270,117 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
       )}
 
       <div className="relative flex min-h-0 flex-1">
-        <FileList
-          title={sidebarTitle}
-          commentLabel={commentStatus === "all" ? "comments" : `${commentStatus} comments`}
-          header={(
-            <div className="grid grid-cols-2 gap-2 [&>div]:min-w-0">
-              <Select
-                size="sm"
-                className="w-full min-w-0 text-sm"
-                aria-label="Files to show"
-                value={fileMode}
-                items={{ changed: "Changed files", all: "All files" }}
-                onValueChange={(value) => {
-                  if (value === "changed" || value === "all") setFileMode(value);
-                }}
-              />
-              <Select
-                size="sm"
-                className="w-full min-w-0 text-sm"
-                aria-label="Comment status"
-                value={commentStatus}
-                items={{ open: "Open", addressed: "Addressed", all: "All" }}
-                onValueChange={(value) => {
-                  if (value === "open" || value === "addressed" || value === "all") setCommentStatus(value);
-                }}
-              />
-            </div>
-          )}
-          notice={fileMode === "all" && (
-            treeError ? (
-              <div role="alert" className="space-y-2 px-3 py-2 text-sm">
-                <p className="break-words">Could not load files. {treeError}</p>
-                <Button variant="secondary" size="sm" onClick={() => setTreeRetry((value) => value + 1)}>Retry</Button>
-              </div>
-            ) : projectPaths === null ? (
-              <div role="status" className="flex items-center gap-2 px-3 py-2 text-sm"><Loader />Loading files…</div>
-            ) : projectPaths.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-kumo-subtle">No project files.</p>
-            ) : null
-          )}
-          files={sidebarPaths.map((path) => {
-            const entry = { path, commentCount: commentCounts.get(path) ?? 0 };
-            const change = changesByPath.get(path);
-            return change ? { ...entry, change } : entry;
-          })}
-          selectedPath={selectedPath}
-          onSelect={selectFile}
-          collapsedDirectories={collapsedDirectories}
-          onToggleDirectory={toggleDirectory}
-        />
-        {previewPath && (
-          <FilePreview
-            key={`${reviewId}:${previewPath}`}
-            path={previewPath}
-            draft={drafts.get(`${reviewId}:${previewPath}`) ?? null}
-            onDraftChange={(draft) => changeDraft(`${reviewId}:${previewPath}`, draft)}
+        {historyMode ? (
+          <CommitHistory
+            key={`${revision}:${connectionVersion}`}
+            api={api}
             active={active}
-            revision={revision}
-            connectionVersion={connectionVersion}
-            loadFile={api.getFile}
-            comments={visibleComments.filter((comment) => comment.file === previewPath)}
-            onSubmitComment={submitComment}
-            onCarryForward={carryForwardComment}
-            onResolve={resolveComment}
-            onReopen={reopenComment}
-            onDelete={deleteComment}
+            layout={layout}
+            header={fileModeSelect}
           />
+        ) : (
+          <>
+            <FileList
+              title={sidebarTitle}
+              commentLabel={commentStatus === "all" ? "comments" : `${commentStatus} comments`}
+              header={(
+                <div className="grid grid-cols-2 gap-2 [&>div]:min-w-0">
+                  {fileModeSelect}
+                  <Select
+                    size="sm"
+                    className="w-full min-w-0 text-sm"
+                    aria-label="Comment status"
+                    value={commentStatus}
+                    items={{ open: "Open", addressed: "Addressed", all: "All" }}
+                    onValueChange={(value) => {
+                      if (value === "open" || value === "addressed" || value === "all") setCommentStatus(value);
+                    }}
+                  />
+                </div>
+              )}
+              notice={fileMode === "all" && (
+                treeError ? (
+                  <div role="alert" className="space-y-2 px-3 py-2 text-sm">
+                    <p className="break-words">Could not load files. {treeError}</p>
+                    <Button variant="secondary" size="sm" onClick={() => setTreeRetry((value) => value + 1)}>Retry</Button>
+                  </div>
+                ) : projectPaths === null ? (
+                  <div role="status" className="flex items-center gap-2 px-3 py-2 text-sm"><Loader />Loading files…</div>
+                ) : projectPaths.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-kumo-subtle">No project files.</p>
+                ) : null
+              )}
+              files={sidebarPaths.map((path) => {
+                const entry = { path, commentCount: commentCounts.get(path) ?? 0 };
+                const change = changesByPath.get(path);
+                return change ? { ...entry, change } : entry;
+              })}
+              selectedPath={selectedPath}
+              onSelect={selectFile}
+              collapsedDirectories={collapsedDirectories}
+              onToggleDirectory={toggleDirectory}
+            />
+            {previewPath && (
+              <FilePreview
+                key={`${reviewId}:${previewPath}`}
+                path={previewPath}
+                draft={drafts.get(`${reviewId}:${previewPath}`) ?? null}
+                onDraftChange={(draft) => changeDraft(`${reviewId}:${previewPath}`, draft)}
+                active={active}
+                revision={revision}
+                connectionVersion={connectionVersion}
+                loadFile={api.getFile}
+                comments={visibleComments.filter((comment) => comment.file === previewPath)}
+                onSubmitComment={submitComment}
+                onCarryForward={carryForwardComment}
+                onResolve={resolveComment}
+                onReopen={reopenComment}
+                onDelete={deleteComment}
+              />
+            )}
+            <main hidden={previewPath !== null} className="min-w-0 flex-1 overflow-y-auto [overflow-anchor:none]">
+              {files.length === 0 && (
+                fileMode === "all" ? (
+                  <p className="px-4 py-6 text-sm text-kumo-subtle">Select a file to preview its contents.</p>
+                ) : (
+                  <EmptyState />
+                )
+              )}
+              {files.map((file) => {
+                const path = diffFilePath(file);
+                return (
+                  <div
+                    key={`${reviewId}:${path}`}
+                    id={`${projectId}:${path}`}
+                    ref={(el) => {
+                      fileRefs.current[path] = el;
+                    }}
+                  >
+                    <DiffView
+                      file={file}
+                      workspaceActive={active && previewPath === null}
+                      revision={revision}
+                      connectionVersion={connectionVersion}
+                      loadContext={api.getFileContext}
+                      reviewId={reviewId ?? ""}
+                      draft={drafts.get(`${reviewId}:${path}`) ?? null}
+                      onDraftChange={(draft) => changeDraft(`${reviewId}:${path}`, draft)}
+                      layout={layout}
+                      comments={visibleComments.filter((c) => c.file === path)}
+                      onCarryForward={carryForwardComment}
+                      collapsed={collapsedPaths.has(path)}
+                      onToggleCollapse={() => toggleCollapsed(path)}
+                      onSubmitComment={submitComment}
+                      onResolve={resolveComment}
+                      onReopen={reopenComment}
+                      onDelete={deleteComment}
+                    />
+                  </div>
+                );
+              })}
+            </main>
+          </>
         )}
-        <main hidden={previewPath !== null} className="min-w-0 flex-1 overflow-y-auto [overflow-anchor:none]">
-          {files.length === 0 && (
-            fileMode === "all" ? (
-              <p className="px-4 py-6 text-sm text-kumo-subtle">Select a file to preview its contents.</p>
-            ) : (
-              <EmptyState />
-            )
-          )}
-          {files.map((file) => {
-            const path = diffFilePath(file);
-            return (
-              <div
-                key={`${reviewId}:${path}`}
-                id={`${projectId}:${path}`}
-                ref={(el) => {
-                  fileRefs.current[path] = el;
-                }}
-              >
-                <DiffView
-                  file={file}
-                  workspaceActive={active && previewPath === null}
-                  revision={revision}
-                  connectionVersion={connectionVersion}
-                  loadContext={api.getFileContext}
-                  reviewId={reviewId ?? ""}
-                  draft={drafts.get(`${reviewId}:${path}`) ?? null}
-                  onDraftChange={(draft) => changeDraft(`${reviewId}:${path}`, draft)}
-                  layout={layout}
-                  comments={visibleComments.filter((c) => c.file === path)}
-                  onCarryForward={carryForwardComment}
-                  collapsed={collapsedPaths.has(path)}
-                  onToggleCollapse={() => toggleCollapsed(path)}
-                  onSubmitComment={submitComment}
-                  onResolve={resolveComment}
-                  onReopen={reopenComment}
-                  onDelete={deleteComment}
-                />
-              </div>
-            );
-          })}
-        </main>
       </div>
     </div>
   );

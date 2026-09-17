@@ -8,9 +8,11 @@ agents can read and mark as addressed through MCP.
 - Review staged, unstaged, and untracked changes against HEAD in unified or split view.
 - Syntax highlighting in diffs and file previews follows the light or dark theme.
   Languages load on demand; unsupported file types stay plain text.
-- Switch the sidebar between Changed files and All files. All files includes tracked
-  and nonignored untracked files. Changed files open their diff; unchanged files have
+- Switch the sidebar between Changed files, All files, and Commits. All files includes
+  tracked and nonignored untracked files. Changed files open their diff; unchanged files have
   a text preview with inline commenting, limited to 1 MiB and 10,000 displayed lines.
+- Browse the current branch's commit history and select any commit to view the diff it
+  introduced, in unified or split view.
 - Expand unchanged code before, between, and after diff hunks in either layout, and
   comment on those lines too. Expansion supports text files up to 1 MiB and 10,000 lines.
 - Open multiple working trees in project tabs, with a picker for recent projects.

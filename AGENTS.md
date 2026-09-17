@@ -41,7 +41,7 @@ diffreview serve (src/server/cli.ts)       Effect v4 (pinned rc)
   ├── ProjectRegistry      lazy runtimes in server-owned child scopes
   │    └── Per project: CommentStore + Watcher + ProjectReview/cache
   ├── HttpApi REST API     /api/server, /api/projects,
-  │                        /api/projects/:projectId/{meta,diff,comments}
+  │                        /api/projects/:projectId/{meta,diff,comments,commits}
   ├── /api/events          multiplexed project/catalog SSE + heartbeats
   └── HttpStaticServer     dist/web assets + SPA fallback
 
@@ -78,7 +78,7 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   folders-first tree. Folders start expanded; collapsed directory state lives
   in ProjectWorkspace so it survives mode switches and refreshes. The collapsed
   sidebar rail keeps direct file shortcuts.
-- The sidebar header switches between Changed files and All files, with
+- The sidebar header switches between Changed files, All files, and Commits, with
   project-local mode state. All files uses `/api/projects/:projectId/files` to list
   tracked and nonignored untracked working-tree files. Unchanged files open a
   comment-enabled `FilePreview` via `/api/projects/:projectId/file?path=...`; changed files
@@ -97,6 +97,11 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   preview/diff transitions and expanded-row reloads. Editors use controlled bodies.
   File tree and preview reads abort on deactivation
   and refresh on project events and reconnection.
+- Commits mode lists the current branch's history through
+  `/api/projects/:projectId/commits` and reads a selected commit's diff through
+  `/api/projects/:projectId/commits/:commitId/diff`. Commit diffs are read-only:
+  no comment anchors, context expansion, or drafts attach to them. The commit
+  list is paginated with `limit`/`offset` query parameters.
 - The sidebar's right-edge `Sidebar.ResizeHandle` uses Kumo's built-in resizing
   (200–600px). App persists its width under `diffreview-sidebar-width` in localStorage.
 - There is no separate Comments tab or comment list view. The sidebar header has
@@ -156,7 +161,7 @@ src/
     ProjectWorkspace.tsx # Project-local review UI, reads, mutations and toasts
     project-tabs.ts # Storage restoration and tab navigation helpers
     api.ts          # Global operations, project-bound clients, one SSE hook
-    *.tsx           # FileList, DiffView, DiffTable, CommentEditor, CommentThread
+    *.tsx           # FileList, DiffView, DiffTable, CommitHistory, CommentEditor, CommentThread
   mcp/
     server.ts       # MCP stdio server + 4 tools
     client.ts       # Global discovery, cwd project binding, typed HTTP helpers

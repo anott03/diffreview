@@ -115,6 +115,31 @@ export interface Meta {
 }
 
 // ---------------------------------------------------------------------------
+// Commit history
+// ---------------------------------------------------------------------------
+
+export interface CommitSummary {
+  /** Full git commit id (40 hex digits). */
+  id: string;
+  /** First line of the commit message. */
+  subject: string;
+  author: string;
+  authorEmail: string;
+  /** Author date in milliseconds since the Unix epoch. */
+  date: number;
+  /** Parent commit ids; empty for a root commit, two or more for a merge. */
+  parents: string[];
+}
+
+export interface ListCommitsResponse {
+  commits: CommitSummary[];
+}
+
+export interface GetCommitDiffResponse {
+  files: DiffFile[];
+}
+
+// ---------------------------------------------------------------------------
 // REST API contracts
 // ---------------------------------------------------------------------------
 

@@ -99,6 +99,31 @@ describe("Effect HTTP server (wire contract)", () => {
     expect(body.files[0]!.status).toBe("modified");
   });
 
+  it("GET /api/commits — lists current branch history and shows a commit's diff", async () => {
+    const list = await json(await handler(new Request(`${projectUrl}/commits`)), S.ListCommitsResponseSchema);
+    expect(list.commits.length).toBeGreaterThanOrEqual(2);
+    const newest = list.commits[0]!;
+    expect(newest.id).toMatch(/^[0-9a-f]{40}$/);
+    expect(newest.subject).toBe("a");
+
+    const diff = await json(
+      await handler(new Request(`${projectUrl}/commits/${newest.id}/diff`)),
+      S.GetCommitDiffResponseSchema
+    );
+    expect(diff.files).toHaveLength(1);
+    expect(diff.files[0]!.newPath).toBe("a.txt");
+    expect(diff.files[0]!.status).toBe("added");
+    expect(diff.files[0]!.additions).toBe(3);
+
+    const missing = await handler(new Request(`${projectUrl}/commits/${"0".repeat(40)}/diff`));
+    expect(missing.status).toBe(404);
+    expect(await json(missing, S.ApiErrorResponseSchema)).toMatchObject({ error: "commit not found" });
+
+    const invalid = await handler(new Request(`${projectUrl}/commits?limit=bogus`));
+    expect(invalid.status).toBe(400);
+    expect(await json(invalid, S.ApiErrorResponseSchema)).toMatchObject({ error: "invalid limit: bogus" });
+  });
+
   it("comment CRUD — 201/200/204 + shapes", async () => {
     // create → 201, author user, status open
     const created = await handler(new Request(`${projectUrl}/comments`, {

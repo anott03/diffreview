@@ -54,6 +54,17 @@ export class ApiGroup extends HttpApiGroup.make("api")
     success: S.GetDiffResponseSchema,
     error: projectErrors
   }))
+  .add(HttpApiEndpoint.get("listCommits", "/projects/:projectId/commits", {
+    params: projectParams,
+    query: { limit: Schema.optional(Schema.String), offset: Schema.optional(Schema.String) },
+    success: S.ListCommitsResponseSchema,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.get("getCommitDiff", "/projects/:projectId/commits/:commitId/diff", {
+    params: { ...projectParams, commitId: Schema.String },
+    success: S.GetCommitDiffResponseSchema,
+    error: reviewErrors
+  }))
   .add(HttpApiEndpoint.get("listFiles", "/projects/:projectId/files", {
     params: projectParams,
     success: S.ListFilesResponseSchema,

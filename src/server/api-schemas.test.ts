@@ -4,11 +4,14 @@ import type {
   ApiErrorResponse,
   Comment,
   CommentContext,
+  CommitSummary,
   CreateCommentRequest,
   DiffFile,
   DiffHunk,
   DiffLine,
+  GetCommitDiffResponse,
   GetDiffResponse,
+  ListCommitsResponse,
   ListFilesResponse,
   FileContent,
   ListCommentsResponse,
@@ -56,6 +59,9 @@ export type _Parity = [
   ...MutuallyAssignable<SType<typeof S.CreateCommentRequestSchema>, CreateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.UpdateCommentRequestSchema>, UpdateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.MetaSchema>, Meta>,
+  ...MutuallyAssignable<SType<typeof S.CommitSummarySchema>, CommitSummary>,
+  ...MutuallyAssignable<SType<typeof S.ListCommitsResponseSchema>, ListCommitsResponse>,
+  ...MutuallyAssignable<SType<typeof S.GetCommitDiffResponseSchema>, GetCommitDiffResponse>,
   ...MutuallyAssignable<SType<typeof S.ProjectSchema>, Project>,
   ...MutuallyAssignable<SType<typeof S.ListProjectsResponseSchema>, ListProjectsResponse>,
   ...MutuallyAssignable<SType<typeof S.OpenProjectRequestSchema>, OpenProjectRequest>,
@@ -202,6 +208,45 @@ describe("UpdateCommentRequestSchema", () => {
     expect(() =>
       Schema.decodeUnknownSync(S.UpdateCommentRequestSchema)({ status: "resolved" })
     ).toThrow();
+  });
+});
+
+describe("commit history schemas", () => {
+  it("validates commit summaries", () => {
+    const commit: CommitSummary = {
+      id: "a".repeat(40),
+      subject: "Add history",
+      author: "t",
+      authorEmail: "t@t.t",
+      date: 1700000000000,
+      parents: ["b".repeat(40)]
+    };
+    expect(Schema.decodeUnknownSync(S.CommitSummarySchema)(commit)).toEqual(commit);
+  });
+
+  it("keeps commit history contracts aligned across Effect and Zod", () => {
+    const commit: CommitSummary = {
+      id: "a".repeat(40),
+      subject: "Add history",
+      author: "t",
+      authorEmail: "t@t.t",
+      date: 1700000000000,
+      parents: []
+    };
+    const list: ListCommitsResponse = { commits: [commit] };
+    expect(Responses.ListCommitsResponseSchema.parse(Schema.encodeSync(S.ListCommitsResponseSchema)(list))).toEqual(list);
+
+    const file: DiffFile = {
+      oldPath: null,
+      newPath: "a.txt",
+      status: "added",
+      isBinary: false,
+      hunks: [],
+      additions: 1,
+      deletions: 0
+    };
+    const diff: GetCommitDiffResponse = { files: [file] };
+    expect(Responses.GetCommitDiffResponseSchema.parse(Schema.encodeSync(S.GetCommitDiffResponseSchema)(diff))).toEqual(diff);
   });
 });
 

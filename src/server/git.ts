@@ -7,7 +7,7 @@ import { lstat, readFile, readlink, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
-import type { DiffFile, Meta } from "../shared/types";
+import type { CommitSummary, DiffFile, Meta } from "../shared/types";
 import { buildUntrackedBinaryFile, buildUntrackedFile, parseGitDiff } from "./diff";
 import { normalizeTextLines } from "./text-lines";
 
@@ -41,13 +41,37 @@ interface RawState {
   untrackedPaths: string[];
 }
 
+/**
+ * Machine-readable `git log` format. NUL separates fields within a record and
+ * newlines separate records; none of the chosen fields may contain NUL bytes,
+ * and `%s` (the commit subject) cannot contain a newline either.
+ */
+const COMMIT_LOG_FORMAT = "%H%x00%s%x00%an%x00%ae%x00%at%x00%P";
+
+function parseCommitLog(out: string): CommitSummary[] {
+  return out.split("\n").filter(Boolean).map((record) => {
+    const [id, subject, author, authorEmail, date, parents] = record.split("\0");
+    return {
+      id: id ?? "",
+      subject: subject ?? "",
+      author: author ?? "",
+      authorEmail: authorEmail ?? "",
+      date: Number(date ?? "0") * 1000,
+      parents: (parents ?? "").split(" ").filter(Boolean)
+    };
+  });
+}
+
 export class Git extends Context.Service<Git, {
   /** Run a git command in `root`, returning stdout. */
   run(root: string, args: string[]): Effect.Effect<string, GitError>;
   /** Canonical repo root (symlinks resolved), or NotARepoError. */
   getRepoRoot(cwd: string): Effect.Effect<string, NotARepoError>;
   hasHead(root: string): Effect.Effect<boolean>;
+  hasCommit(root: string, commitId: string): Effect.Effect<boolean>;
   getMeta(root: string, files: ReadonlyArray<DiffFile>): Effect.Effect<Meta, GitError>;
+  listCommits(root: string, options: { limit: number; offset: number }): Effect.Effect<Array<CommitSummary>, GitError>;
+  getCommitDiff(root: string, commitId: string): Effect.Effect<Array<DiffFile>, GitError>;
   trackedDiffText(root: string): Effect.Effect<string, GitError>;
   listUntracked(root: string): Effect.Effect<Array<string>, GitError>;
   readUntrackedFiles(
@@ -72,6 +96,13 @@ export class Git extends Context.Service<Git, {
 
       const hasHead = Effect.fn("Git.hasHead")(function*(root: string) {
         return yield* run(root, ["rev-parse", "--verify", "--quiet", "HEAD"]).pipe(
+          Effect.as(true),
+          Effect.catch(() => Effect.succeed(false))
+        );
+      });
+
+      const hasCommit = Effect.fn("Git.hasCommit")(function*(root: string, commitId: string) {
+        return yield* run(root, ["rev-parse", "--verify", "--quiet", `${commitId}^{commit}`]).pipe(
           Effect.as(true),
           Effect.catch(() => Effect.succeed(false))
         );
@@ -204,6 +235,26 @@ export class Git extends Context.Service<Git, {
         return [...parseGitDiff(text), ...untracked];
       });
 
+      // -- Commit history ------------------------------------------------------
+
+      const listCommits = Effect.fn("Git.listCommits")(function*(
+        root: string,
+        options: { limit: number; offset: number }
+      ) {
+        const out = yield* run(root, [
+          "log", "HEAD", `--format=${COMMIT_LOG_FORMAT}`,
+          "-n", String(options.limit), "--skip", String(options.offset)
+        ]);
+        return parseCommitLog(out);
+      });
+
+      const getCommitDiff = Effect.fn("Git.getCommitDiff")(function*(root: string, commitId: string) {
+        const text = yield* run(root, [
+          "show", "--no-color", "--find-renames", "--no-ext-diff", "--format=", commitId
+        ]);
+        return parseGitDiff(text);
+      });
+
       // -- Poll state ----------------------------------------------------------
 
       /**
@@ -244,12 +295,15 @@ export class Git extends Context.Service<Git, {
         run,
         getRepoRoot,
         hasHead,
+        hasCommit,
         getMeta,
         trackedDiffText,
         listUntracked,
         readUntrackedFiles,
         collectState,
-        getDiffFiles
+        getDiffFiles,
+        listCommits,
+        getCommitDiff
       });
     }
   );

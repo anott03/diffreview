@@ -4,7 +4,9 @@ import type { CreateCommentRequest, UpdateCommentRequest } from "../shared/types
 import {
   ApiErrorResponseSchema,
   CommentSchema,
+  GetCommitDiffResponseSchema,
   GetDiffResponseSchema,
+  ListCommitsResponseSchema,
   ListFilesResponseSchema,
   FileContentSchema,
   ListCommentsResponseSchema,
@@ -46,6 +48,10 @@ export function createProjectApi(projectId: string) {
   return {
     getMeta: (signal?: AbortSignal) => request(`${base}/meta`, MetaSchema, { signal }),
     getDiff: (signal?: AbortSignal) => request(`${base}/diff`, GetDiffResponseSchema, { signal }),
+    getCommits: (limit: number, offset: number, signal?: AbortSignal) =>
+      request(`${base}/commits?${new URLSearchParams({ limit: String(limit), offset: String(offset) })}`, ListCommitsResponseSchema, { signal }),
+    getCommitDiff: (commitId: string, signal?: AbortSignal) =>
+      request(`${base}/commits/${encodeURIComponent(commitId)}/diff`, GetCommitDiffResponseSchema, { signal }),
     getFiles: (signal?: AbortSignal) => request(`${base}/files`, ListFilesResponseSchema, { signal }),
     getFile: (path: string, signal?: AbortSignal) =>
       request(`${base}/file?${new URLSearchParams({ path })}`, FileContentSchema, { signal }),

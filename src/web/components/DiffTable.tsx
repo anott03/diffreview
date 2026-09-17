@@ -24,6 +24,7 @@ interface DiffTableProps {
   renderHunkHeader?: (index: number) => ReactNode;
   commentsByAnchor: Map<string, Comment[]>;
   editing: CommentDraft | null;
+  readOnly?: boolean;
   onDraftBodyChange: (body: string) => void;
   onStartComment: (anchor: EditingAnchor) => void;
   onCancelComment: () => void;
@@ -109,7 +110,7 @@ export function UnifiedDiffTable(props: DiffTableProps) {
                   )}
                 >
                   <span className="flex justify-center">
-                    <AddCommentButton onClick={() => onStartComment(anchor)} />
+                    {!props.readOnly && <AddCommentButton onClick={() => onStartComment(anchor)} />}
                   </span>
                   <LineNo value={line.oldLine} />
                   <LineNo value={line.newLine} />
@@ -229,12 +230,12 @@ export function SplitDiffTable(props: DiffTableProps) {
               <Fragment key={rowIndex}>
                 <div className="group grid grid-cols-[1.5rem_3rem_1fr_1.5rem_3rem_1fr]">
                   <span className="flex justify-center">
-                    {leftAnchor && <AddCommentButton onClick={() => onStartComment(leftAnchor)} />}
+                    {!props.readOnly && leftAnchor && <AddCommentButton onClick={() => onStartComment(leftAnchor)} />}
                   </span>
                   <LineNo value={row.left?.oldLine} />
                   <SplitCell line={row.left} prefix="-" tinted={row.left?.type === "del"} tokens={leftAnchor ? props.syntaxLines?.get(anchorKey("old", leftAnchor.line)) : undefined} />
                   <span className="flex justify-center border-l border-kumo-line">
-                    {rightAnchor && <AddCommentButton onClick={() => onStartComment(rightAnchor)} />}
+                    {!props.readOnly && rightAnchor && <AddCommentButton onClick={() => onStartComment(rightAnchor)} />}
                   </span>
                   <LineNo value={row.right?.newLine} />
                   <SplitCell line={row.right} prefix="+" tinted={row.right?.type === "add"} tokens={rightAnchor ? props.syntaxLines?.get(anchorKey("new", rightAnchor.line)) : undefined} />
