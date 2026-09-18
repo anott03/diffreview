@@ -31,9 +31,11 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
   const [commitsError, setCommitsError] = useState<string | null>(null);
   const [commitsRetry, setCommitsRetry] = useState(0);
   const [offset, setOffset] = useState(0);
+  const loadedOffset = useRef<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [diff, setDiff] = useState<GetCommitDiffResponse | null>(null);
+  const loadedDiffId = useRef<string | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [diffRetry, setDiffRetry] = useState(0);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -44,7 +46,7 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
   const now = useNow();
 
   useEffect(() => {
-    if (!active || !visible) return;
+    if (!active || !visible || loadedOffset.current === offset) return;
     const controller = new AbortController();
     setCommitsError(null);
     void api.getCommits(COMMIT_FETCH_SIZE, offset, controller.signal).then((result) => {
@@ -54,6 +56,7 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
       const page = result.commits.slice(0, COMMIT_PAGE_SIZE);
       setCommits((previous) => offset === 0 ? page : [...(previous ?? []), ...page]);
       setHasMore(result.commits.length > COMMIT_PAGE_SIZE);
+      loadedOffset.current = offset;
     }).catch((cause) => {
       if (!controller.signal.aborted) setCommitsError(String(cause));
     });
@@ -61,15 +64,15 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
   }, [api, active, visible, offset, commitsRetry]);
 
   useEffect(() => {
-    if (!active || !visible || !selectedId) {
-      setDiff(null);
-      return;
-    }
+    if (!active || !visible || !selectedId || loadedDiffId.current === selectedId) return;
     const controller = new AbortController();
+    loadedDiffId.current = null;
     setDiff(null);
     setDiffError(null);
     void api.getCommitDiff(selectedId, controller.signal).then((result) => {
-      if (!controller.signal.aborted) setDiff(result);
+      if (controller.signal.aborted) return;
+      setDiff(result);
+      loadedDiffId.current = selectedId;
     }).catch((cause) => {
       if (!controller.signal.aborted) setDiffError(String(cause));
     });
@@ -151,7 +154,7 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
           error={commitsError}
           onRetry={() => setCommitsRetry((value) => value + 1)}
           hasMore={hasMore}
-          onLoadMore={() => setOffset((value) => value + COMMIT_PAGE_SIZE)}
+          onLoadMore={() => setOffset(commits?.length ?? 0)}
           selectedId={selectedId}
           onSelect={selectCommit}
           header={historySidebarHeader}
