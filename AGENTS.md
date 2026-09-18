@@ -99,7 +99,9 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   and refresh on project events and reconnection.
 - Commits mode lists the current branch's history through
   `/api/projects/:projectId/commits` and reads a selected commit's diff through
-  `/api/projects/:projectId/commits/:commitId/diff`. Commit diffs are read-only:
+  `/api/projects/:projectId/commits/:commitId/diff`. Selecting a commit switches
+  the sidebar to a Files view listing that commit's changed files for jump
+  navigation (with a Commits back button). Commit diffs are read-only:
   no comment anchors, context expansion, or drafts attach to them. Commit
   selection, loaded pages, and collapse state survive mode switches; the
   component stays mounted and only renders when Commits is active. The commit
