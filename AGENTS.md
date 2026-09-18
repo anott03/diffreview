@@ -100,8 +100,11 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
 - Commits mode lists the current branch's history through
   `/api/projects/:projectId/commits` and reads a selected commit's diff through
   `/api/projects/:projectId/commits/:commitId/diff`. Commit diffs are read-only:
-  no comment anchors, context expansion, or drafts attach to them. The commit
-  list is paginated with `limit`/`offset` query parameters.
+  no comment anchors, context expansion, or drafts attach to them. Commit
+  selection, loaded pages, and collapse state survive mode switches; the
+  component stays mounted and only renders when Commits is active. The commit
+  list is paginated with `limit`/`offset` query parameters (offset assumes HEAD
+  is stable between page loads).
 - The sidebar's right-edge `Sidebar.ResizeHandle` uses Kumo's built-in resizing
   (200–600px). App persists its width under `diffreview-sidebar-width` in localStorage.
 - There is no separate Comments tab or comment list view. The sidebar header has

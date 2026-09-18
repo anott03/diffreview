@@ -242,6 +242,10 @@ export class Git extends Context.Service<Git, {
         root: string,
         options: { limit: number; offset: number }
       ) {
+        // Offset pagination assumes HEAD stays put between page loads. If the
+        // branch moves, a page can skip or repeat commits. This is acceptable
+        // for a local review tool, but a cursor-based scheme would be needed
+        // to page a branch that is mutating concurrently.
         const out = yield* run(root, [
           "log", "HEAD", `--format=${COMMIT_LOG_FORMAT}`,
           "-n", String(options.limit), "--skip", String(options.offset)

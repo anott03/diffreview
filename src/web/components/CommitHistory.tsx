@@ -3,6 +3,7 @@ import { Loader } from "@cloudflare/kumo/components/loader";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CommitSummary, GetCommitDiffResponse, ListCommitsResponse } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
+import { useNow } from "../use-relative-time";
 import { CommitFileView } from "./CommitFileView";
 import { CommitList, formatCommitDate } from "./CommitList";
 import type { Layout } from "./DiffView";
@@ -18,11 +19,12 @@ export interface CommitHistoryApi {
 interface CommitHistoryProps {
   api: CommitHistoryApi;
   active: boolean;
+  visible: boolean;
   layout: Layout;
   header?: ReactNode;
 }
 
-export function CommitHistory({ api, active, layout, header }: CommitHistoryProps) {
+export function CommitHistory({ api, active, visible, layout, header }: CommitHistoryProps) {
   const [commits, setCommits] = useState<CommitSummary[] | null>(null);
   const [commitsError, setCommitsError] = useState<string | null>(null);
   const [commitsRetry, setCommitsRetry] = useState(0);
@@ -33,9 +35,10 @@ export function CommitHistory({ api, active, layout, header }: CommitHistoryProp
   const [diffError, setDiffError] = useState<string | null>(null);
   const [diffRetry, setDiffRetry] = useState(0);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const now = useNow();
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !visible) return;
     const controller = new AbortController();
     setCommitsError(null);
     void api.getCommits(COMMIT_FETCH_SIZE, offset, controller.signal).then((result) => {
@@ -49,10 +52,10 @@ export function CommitHistory({ api, active, layout, header }: CommitHistoryProp
       if (!controller.signal.aborted) setCommitsError(String(cause));
     });
     return () => controller.abort();
-  }, [api, active, offset, commitsRetry]);
+  }, [api, active, visible, offset, commitsRetry]);
 
   useEffect(() => {
-    if (!active || !selectedId) {
+    if (!active || !visible || !selectedId) {
       setDiff(null);
       return;
     }
@@ -65,7 +68,7 @@ export function CommitHistory({ api, active, layout, header }: CommitHistoryProp
       if (!controller.signal.aborted) setDiffError(String(cause));
     });
     return () => controller.abort();
-  }, [api, active, selectedId, diffRetry]);
+  }, [api, active, visible, selectedId, diffRetry]);
 
   const selectedCommit = useMemo(
     () => commits?.find((commit) => commit.id === selectedId) ?? null,
@@ -80,6 +83,8 @@ export function CommitHistory({ api, active, layout, header }: CommitHistoryProp
       return next;
     });
   };
+
+  if (!visible) return null;
 
   return (
     <>
@@ -119,7 +124,7 @@ export function CommitHistory({ api, active, layout, header }: CommitHistoryProp
               {selectedCommit && (
                 <div className="mt-1 flex items-center gap-3 text-xs text-kumo-subtle">
                   <span>{selectedCommit.author}</span>
-                  <span>{formatCommitDate(selectedCommit.date)}</span>
+                  <span>{formatCommitDate(selectedCommit.date, now)}</span>
                 </div>
               )}
             </div>

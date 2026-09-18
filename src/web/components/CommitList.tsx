@@ -4,10 +4,11 @@ import { Sidebar, useSidebar } from "@cloudflare/kumo/components/sidebar";
 import { GitCommitIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { CommitSummary } from "../../shared/types";
+import { useNow } from "../use-relative-time";
 
-export function formatCommitDate(ms: number): string {
+export function formatCommitDate(ms: number, now: number): string {
   const date = new Date(ms);
-  const elapsed = Date.now() - ms;
+  const elapsed = now - ms;
   if (elapsed < 60_000) return "just now";
   if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
   if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
@@ -37,6 +38,7 @@ export function CommitList({
   header,
 }: CommitListProps) {
   const { state } = useSidebar();
+  const now = useNow();
   const collapsed = state === "collapsed";
   const count = commits?.length ?? 0;
 
@@ -71,7 +73,6 @@ export function CommitList({
                   icon={<GitCommitIcon size={16} className="shrink-0 text-kumo-subtle" />}
                   active={commit.id === selectedId}
                   aria-current={commit.id === selectedId ? "true" : undefined}
-                  aria-label={commit.subject || "(no commit message)"}
                   tooltip={commit.subject || "(no commit message)"}
                   title={commit.subject || "(no commit message)"}
                   className="transition-none"
@@ -82,7 +83,7 @@ export function CommitList({
                       {commit.subject || "(no commit message)"}
                     </span>
                     <span className="block truncate text-xs text-kumo-subtle">
-                      {commit.id.slice(0, 8)} · {commit.author} · {formatCommitDate(commit.date)}
+                      {commit.id.slice(0, 8)} · {commit.author} · {formatCommitDate(commit.date, now)}
                     </span>
                   </span>
                 </Sidebar.MenuButton>

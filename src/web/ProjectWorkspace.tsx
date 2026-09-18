@@ -270,15 +270,7 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
       )}
 
       <div className="relative flex min-h-0 flex-1">
-        {historyMode ? (
-          <CommitHistory
-            key={`${reviewId ?? ""}:${connectionVersion}`}
-            api={api}
-            active={active}
-            layout={layout}
-            header={fileModeSelect}
-          />
-        ) : (
+        {!historyMode && (
           <>
             <FileList
               title={sidebarTitle}
@@ -381,6 +373,14 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
             </main>
           </>
         )}
+        <CommitHistory
+          key={`${reviewId ?? ""}:${connectionVersion}`}
+          api={api}
+          active={active}
+          visible={historyMode}
+          layout={layout}
+          header={fileModeSelect}
+        />
       </div>
     </div>
   );
