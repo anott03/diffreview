@@ -2,12 +2,13 @@ import { Button, InputArea } from "@cloudflare/kumo";
 import { useEffect, useRef, useState } from "react";
 
 interface CommentEditorProps {
+  body: string;
+  onBodyChange: (body: string) => void;
   onSubmit: (body: string) => Promise<void>;
   onCancel: () => void;
 }
 
-export function CommentEditor({ onSubmit, onCancel }: CommentEditorProps) {
-  const [body, setBody] = useState("");
+export function CommentEditor({ body, onBodyChange, onSubmit, onCancel }: CommentEditorProps) {
   const [saving, setSaving] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -34,7 +35,7 @@ export function CommentEditor({ onSubmit, onCancel }: CommentEditorProps) {
       <InputArea
         ref={areaRef}
         value={body}
-        onValueChange={setBody}
+        onValueChange={onBodyChange}
         placeholder="Leave a review comment… (Markdown supported · ⌘/Ctrl+Enter to submit)"
         autoResize
         minRows={2}

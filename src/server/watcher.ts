@@ -13,10 +13,15 @@
  */
 import { Context, Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import type { Stream as StreamT } from "effect";
-import type { DiffFile, SseEvent } from "../shared/types";
+import type { DiffFile } from "../shared/types";
 import { parseGitDiff } from "./diff";
 import { Git, GitError } from "./git";
 import { CommentStore, type StoreError } from "./store";
+
+export interface WatcherEvent {
+  type: "diff" | "comments";
+  at: number;
+}
 
 export interface ReviewSnapshot {
   files: DiffFile[];
@@ -36,9 +41,9 @@ export class Watcher extends Context.Service<Watcher, {
    */
   refresh(): Effect.Effect<boolean, GitError | StoreError>;
   /** Publish an SSE event directly (e.g. "comments" from HTTP handlers). */
-  publish(event: SseEvent): Effect.Effect<boolean>;
+  publish(event: WatcherEvent): Effect.Effect<boolean>;
   /** Stream of SSE events: "diff" on poll-detected changes + published events. */
-  readonly changes: StreamT.Stream<SseEvent>;
+  readonly changes: StreamT.Stream<WatcherEvent>;
 }>()("diffreview/server/Watcher") {
   /**
    * @param options.root   repo root to watch
@@ -58,7 +63,8 @@ export class Watcher extends Context.Service<Watcher, {
 
         const snapshotRef = yield* Ref.make<ReviewSnapshot | null>(null);
         const lastHashRef = yield* Ref.make("");
-        const pubsub = yield* PubSub.unbounded<SseEvent>();
+        const pubsub = yield* PubSub.unbounded<WatcherEvent>();
+        yield* Effect.addFinalizer(() => PubSub.shutdown(pubsub));
 
         const refresh = Effect.fn("Watcher.refresh")(function*() {
           const state = yield* git.collectState(root);
@@ -76,7 +82,7 @@ export class Watcher extends Context.Service<Watcher, {
           const reviewId = yield* store.currentReview(state.head);
           yield* Ref.set(snapshotRef, { files, reviewId, head: state.head });
           yield* Ref.set(lastHashRef, state.hash);
-          const event: SseEvent = { type: "diff", at: Date.now() };
+          const event: WatcherEvent = { type: "diff", at: Date.now() };
           yield* PubSub.publish(pubsub, event);
           return true;
         });

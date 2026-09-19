@@ -1,21 +1,7 @@
-/**
- * REST API definition (Effect HttpApi) — wire-compatible with the legacy
- * Hono server: same paths, JSON shapes, and status codes (the web UI and
- * diffreview-mcp parse these).
- *
- * Error payloads are `{ error: string }` bodies (plus a `_tag` discriminator)
- * annotated with their HTTP status via HttpApiSchema.status.
- */
 import { Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import * as S from "./api-schemas";
 
-/**
- * API errors as TaggedError classes: the `_tag` lets the endpoint's error
- * union encoder pick the right status annotation (plain `{error}` structs
- * would all match the first union member). Wire body:
- * `{"_tag":"...","error":"..."}` — clients read the `error` field.
- */
 export class BadRequestError extends Schema.TaggedError<BadRequestError>()("BadRequestError", {
   error: Schema.String
 }) {}
@@ -31,85 +17,90 @@ export class InternalError extends Schema.TaggedError<InternalError>()("Internal
 }) {}
 export const InternalErrorSchema = InternalError.pipe(HttpApiSchema.status(500));
 
-// -- SSE ---------------------------------------------------------------------
+export class ProjectUnavailableError extends Schema.TaggedError<ProjectUnavailableError>()("ProjectUnavailableError", {
+  error: Schema.String
+}) {}
+export const ProjectUnavailableErrorSchema = ProjectUnavailableError.pipe(HttpApiSchema.status(503));
 
-/** Wire shape of a diff/comments event payload. */
-const SseDataSchema = Schema.Union([
-  Schema.Struct({ type: Schema.Literals(["diff", "comments"]), at: Schema.Number }),
-  // Heartbeats: `event: ping`, data `{}` — matches the legacy frame format.
-  Schema.Struct({})
-]);
+const projectErrors = [NotFoundErrorSchema, ProjectUnavailableErrorSchema, InternalErrorSchema];
+const reviewErrors = [...projectErrors, BadRequestErrorSchema];
+const projectParams = { projectId: Schema.String };
+const commentParams = { ...projectParams, id: Schema.String };
 
-/**
- * SSE event codec: the handler produces `{ id, event, data }` triples (data
- * JSON-encoded per frame), rendering `event: diff\ndata: {"type":...}` —
- * the exact format the legacy Hono `streamSSE` emitted.
- */
 const SseEventCodec = Schema.Struct({
   id: Schema.UndefinedOr(Schema.String),
   event: Schema.String,
-  data: Schema.fromJsonString(SseDataSchema)
+  data: Schema.fromJsonString(Schema.Union([S.SseEventSchema, Schema.Struct({})]))
 });
 
-/**
- * `/api` group.
- *
- * The POST/PATCH/DELETE handlers are declared `handleRaw` so invalid payloads
- * render the same `400 { error: "<message>" }` bodies as the legacy server
- * (declared HttpApi payloads would render an empty `HttpApiSchemaError` 400).
- */
 export class ApiGroup extends HttpApiGroup.make("api")
-  .add(
-    HttpApiEndpoint.get("meta", "/meta", {
-      success: S.MetaSchema,
-      error: InternalErrorSchema
-    })
-  )
-  .add(
-    HttpApiEndpoint.get("diff", "/diff", {
-      success: S.GetDiffResponseSchema,
-      error: InternalErrorSchema
-    })
-  )
-  .add(
-    HttpApiEndpoint.get("listComments", "/comments", {
-      query: {
-        status: Schema.optional(Schema.String),
-        file: Schema.optional(Schema.String)
-      },
-      success: S.ListCommentsResponseSchema,
-      error: [BadRequestErrorSchema, InternalErrorSchema]
-    })
-  )
-  .add(
-    HttpApiEndpoint.post("createComment", "/comments", {
-      payload: S.CreateCommentRequestSchema,
-      success: S.CommentSchema.pipe(HttpApiSchema.status(201)),
-      error: [BadRequestErrorSchema, InternalErrorSchema]
-    })
-  )
-  .add(
-    HttpApiEndpoint.patch("updateComment", "/comments/:id", {
-      params: { id: Schema.String },
-      payload: S.UpdateCommentRequestSchema,
-      success: S.CommentSchema,
-      error: [NotFoundErrorSchema, BadRequestErrorSchema, InternalErrorSchema]
-    })
-  )
-  .add(
-    HttpApiEndpoint.delete("deleteComment", "/comments/:id", {
-      params: { id: Schema.String },
-      // success defaults to 204 No Content.
-      error: [NotFoundErrorSchema, InternalErrorSchema]
-    })
-  )
-  .add(
-    HttpApiEndpoint.get("events", "/events", {
-      // SSE: the handler merges watcher changes (diff/comments) with 30s
-      // pings; the legacy client contract is `event: <type>` + JSON data.
-      success: HttpApiSchema.StreamSse({ events: SseEventCodec })
-    })
-  )
+  .add(HttpApiEndpoint.get("server", "/server", { success: S.ServerInfoSchema }))
+  .add(HttpApiEndpoint.get("listProjects", "/projects", {
+    success: S.ListProjectsResponseSchema,
+    error: InternalErrorSchema
+  }))
+  .add(HttpApiEndpoint.post("openProject", "/projects", {
+    payload: S.OpenProjectRequestSchema,
+    success: S.ProjectSchema,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.get("meta", "/projects/:projectId/meta", {
+    params: projectParams,
+    success: S.MetaSchema,
+    error: projectErrors
+  }))
+  .add(HttpApiEndpoint.get("diff", "/projects/:projectId/diff", {
+    params: projectParams,
+    success: S.GetDiffResponseSchema,
+    error: projectErrors
+  }))
+  .add(HttpApiEndpoint.get("listCommits", "/projects/:projectId/commits", {
+    params: projectParams,
+    query: { limit: Schema.optional(Schema.String), offset: Schema.optional(Schema.String) },
+    success: S.ListCommitsResponseSchema,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.get("getCommitDiff", "/projects/:projectId/commits/:commitId/diff", {
+    params: { ...projectParams, commitId: Schema.String },
+    success: S.GetCommitDiffResponseSchema,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.get("listFiles", "/projects/:projectId/files", {
+    params: projectParams,
+    success: S.ListFilesResponseSchema,
+    error: projectErrors
+  }))
+  .add(HttpApiEndpoint.get("file", "/projects/:projectId/file", {
+    params: projectParams,
+    query: { path: Schema.String, context: Schema.optional(Schema.String), reviewId: Schema.optional(Schema.String) },
+    success: S.FileContentSchema,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.get("listComments", "/projects/:projectId/comments", {
+    params: projectParams,
+    query: { status: Schema.optional(Schema.String), file: Schema.optional(Schema.String) },
+    success: S.ListCommentsResponseSchema,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.post("createComment", "/projects/:projectId/comments", {
+    params: projectParams,
+    payload: S.CreateCommentRequestSchema,
+    success: S.CommentSchema.pipe(HttpApiSchema.status(201)),
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.patch("updateComment", "/projects/:projectId/comments/:id", {
+    params: commentParams,
+    payload: S.UpdateCommentRequestSchema,
+    success: S.CommentSchema,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.delete("deleteComment", "/projects/:projectId/comments/:id", {
+    params: commentParams,
+    error: reviewErrors
+  }))
+  .add(HttpApiEndpoint.get("events", "/events", {
+    success: HttpApiSchema.StreamSse({ events: SseEventCodec })
+  }))
   .prefix("/api") {}
 
 export class Api extends HttpApi.make("diffreview").add(ApiGroup) {}

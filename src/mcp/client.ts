@@ -1,91 +1,70 @@
+import { resolve } from "node:path";
 import { z } from "zod";
-import { MetaSchema } from "../shared/response-schemas";
-import type { UpdateCommentRequest } from "../shared/types";
-import { getRepoRoot } from "../server/git";
-import { readSession } from "../server/session";
+import type { Project, UpdateCommentRequest } from "../shared/types";
+import { resolveProjectPath } from "../server/project-path";
+import { discoverServer, registerProject } from "../server/server-discovery";
 
 export interface ResolvedClient {
-  baseUrl: string;
-  repoRoot: string;
+  readonly baseUrl: string;
+  readonly repoRoot: string;
+  readonly project: Readonly<Project>;
 }
 
 export type ResolveResult = { ok: true; client: ResolvedClient } | { ok: false; error: string };
 
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return z.object({ code: z.literal("EPERM") }).safeParse(err).success;
-  }
-}
-
-/**
- * Finds the diffreview server instance for the repo containing `cwd`
- * (opencode spawns MCP servers with the project root as cwd). Validates the
- * session file is fresh: pid alive, port answering, repoRoot matching.
- */
 export async function resolveClient(cwd: string = process.cwd()): Promise<ResolveResult> {
+  const path = resolve(cwd);
   let repoRoot: string;
   try {
-    repoRoot = await getRepoRoot(cwd);
+    repoRoot = await resolveProjectPath(path);
   } catch {
-    return { ok: false, error: `not inside a git repository (cwd: ${cwd})` };
+    return { ok: false, error: `Not inside an accessible Git working tree (cwd: ${cwd}).` };
   }
-
-  const session = readSession(repoRoot);
-  if (!session) {
+  const server = await discoverServer();
+  if (!server) {
     return {
       ok: false,
-      error: `No diffreview instance is running for ${repoRoot}. Ask the user to start one with: diffreview ${repoRoot}`,
+      error: `No verified global diffreview server is available. Ask the user to run: diffreview open ${JSON.stringify(path)} --no-open. Stop old per-repository servers before upgrading.`,
     };
   }
-  if (!pidAlive(session.pid)) {
-    return {
-      ok: false,
-      error: `Found a stale diffreview session for ${repoRoot} (pid ${session.pid} is dead). Ask the user to restart: diffreview ${repoRoot}`,
-    };
-  }
-
-  const baseUrl = `http://127.0.0.1:${session.port}`;
   try {
-    const res = await fetch(`${baseUrl}/api/meta`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const meta = MetaSchema.parse(await res.json());
-    if (meta.repoRoot !== repoRoot) {
-      return {
-        ok: false,
-        error: `Stale diffreview session file (repo mismatch). Ask the user to restart: diffreview ${repoRoot}`,
-      };
+    const project = await registerProject(server, path);
+    if (project.root !== repoRoot) {
+      return { ok: false, error: "The server returned a different working tree during project registration. Restart the global diffreview server." };
     }
-  } catch {
+    return { ok: true, client: Object.freeze({ baseUrl: server.endpoint, repoRoot, project: Object.freeze(project) }) };
+  } catch (cause) {
     return {
       ok: false,
-      error: `diffreview is not responding on port ${session.port}. Ask the user to restart: diffreview ${repoRoot}`,
+      error: `Could not open ${repoRoot} on ${server.endpoint}: ${cause instanceof Error ? cause.message : String(cause)}. Try: diffreview open ${JSON.stringify(path)} --no-open`,
     };
   }
-
-  return { ok: true, client: { baseUrl, repoRoot } };
 }
 
-export async function apiGet<T>(client: ResolvedClient, path: string, schema: z.ZodType<T>): Promise<T> {
-  const res = await fetch(`${client.baseUrl}${path}`, { signal: AbortSignal.timeout(5000) });
+type ProjectApiPath = "/meta" | "/diff" | `/comments${string}`;
+
+function projectUrl(client: ResolvedClient, path: ProjectApiPath): string {
+  return `${client.baseUrl}/api/projects/${encodeURIComponent(client.project.id)}${path}`;
+}
+
+export async function apiGet<T>(client: ResolvedClient, path: ProjectApiPath, schema: z.ZodType<T>): Promise<T> {
+  const res = await fetch(projectUrl(client, path), { signal: AbortSignal.timeout(5000), redirect: "error" });
   if (!res.ok) throw new Error(`GET ${path} failed: HTTP ${res.status}`);
   return schema.parse(await res.json());
 }
 
-/** Returns null on 404, throws on other failures. */
 export async function apiPatch<T>(
   client: ResolvedClient,
-  path: string,
+  path: ProjectApiPath,
   body: UpdateCommentRequest,
   schema: z.ZodType<T>,
 ): Promise<T | null> {
-  const res = await fetch(`${client.baseUrl}${path}`, {
+  const res = await fetch(projectUrl(client, path), {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(5000),
+    redirect: "error",
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`PATCH ${path} failed: HTTP ${res.status}`);

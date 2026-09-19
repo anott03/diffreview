@@ -29,6 +29,17 @@ const PositiveIntSchema = Schema.Finite.pipe(
   Schema.check(Schema.isInt(), Schema.isGreaterThan(0))
 );
 
+/** A runaway client must not bloat the comment store or every list response. */
+const bounded = (minimum: number, maximum: number) => Schema.String.pipe(
+  Schema.check(Schema.makeFilter(
+    (value: string) => value.length >= minimum && value.length <= maximum,
+    { message: `expected ${minimum}-${maximum} characters` }
+  ))
+);
+
+export const CommentTextSchema = bounded(1, 100_000);
+export const LineTextSchema = bounded(0, 100_000);
+
 // ---------------------------------------------------------------------------
 // Diff model (GET /api/diff payloads)
 // ---------------------------------------------------------------------------
@@ -95,14 +106,14 @@ export const CreateCommentRequestSchema = Schema.Struct({
   file: Schema.NonEmptyString,
   side: SideSchema,
   line: PositiveIntSchema,
-  lineText: Schema.String,
-  body: Schema.NonEmptyString
+  lineText: LineTextSchema,
+  body: CommentTextSchema
 });
 
 export const UpdateCommentRequestSchema = Schema.Struct({
   status: Schema.optionalKey(StatusSchema),
-  note: Schema.optionalKey(Schema.String),
-  body: Schema.optionalKey(Schema.NonEmptyString),
+  note: Schema.optionalKey(bounded(0, 100_000)),
+  body: Schema.optionalKey(CommentTextSchema),
   carryForward: Schema.optionalKey(Schema.Literals([true]))
 }).pipe(
   Schema.check(
@@ -116,6 +127,27 @@ export const UpdateCommentRequestSchema = Schema.Struct({
 // REST responses
 // ---------------------------------------------------------------------------
 
+export const ProjectSchema = Schema.Struct({
+  id: Schema.String,
+  root: Schema.String,
+  name: Schema.String,
+  openedAt: Schema.Number
+});
+
+export const ListProjectsResponseSchema = Schema.Struct({
+  projects: ArrayOf(ProjectSchema)
+});
+
+export const OpenProjectRequestSchema = Schema.Struct({ path: Schema.NonEmptyString });
+
+export const ServerInfoSchema = Schema.Struct({
+  service: Schema.Literal("diffreview"),
+  protocolVersion: Schema.Literal(1),
+  instanceId: Schema.String,
+  pid: Schema.Number,
+  startedAt: Schema.Number
+});
+
 export const MetaSchema = Schema.Struct({
   repoRoot: Schema.String,
   branch: Schema.String,
@@ -125,9 +157,38 @@ export const MetaSchema = Schema.Struct({
   deletions: Schema.Number
 });
 
+export const CommitSummarySchema = Schema.Struct({
+  id: Schema.String,
+  subject: Schema.String,
+  author: Schema.String,
+  authorEmail: Schema.String,
+  date: Schema.Number,
+  parents: ArrayOf(Schema.String)
+});
+
+export const ListCommitsResponseSchema = Schema.Struct({
+  commits: ArrayOf(CommitSummarySchema)
+});
+
+export const GetCommitDiffResponseSchema = Schema.Struct({
+  files: ArrayOf(DiffFileSchema)
+});
+
 export const GetDiffResponseSchema = Schema.Struct({
   files: ArrayOf(DiffFileSchema),
   reviewId: Schema.String
+});
+
+export const ListFilesResponseSchema = Schema.Struct({
+  files: ArrayOf(Schema.String)
+});
+
+export const FileContentSchema = Schema.Struct({
+  path: Schema.String,
+  content: Schema.NullOr(Schema.String),
+  baseContent: Schema.optional(Schema.NullOr(Schema.String)),
+  reviewId: Schema.optional(Schema.String),
+  kind: Schema.Literals(["text", "binary", "too-large", "symlink", "unsupported"])
 });
 
 export const ListCommentsResponseSchema = Schema.Struct({
@@ -142,7 +203,11 @@ export const ApiErrorResponseSchema = Schema.Struct({
 // Server-sent events
 // ---------------------------------------------------------------------------
 
-export const SseEventSchema = Schema.Struct({
-  type: Schema.Literals(["diff", "comments"]),
-  at: Schema.Number
-});
+export const SseEventSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literals(["diff", "comments"]),
+    projectId: Schema.String,
+    at: Schema.Number
+  }),
+  Schema.Struct({ type: Schema.Literal("projects"), at: Schema.Number })
+]);

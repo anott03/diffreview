@@ -1,7 +1,10 @@
 import { cn } from "@cloudflare/kumo";
 import { Plus } from "@phosphor-icons/react";
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { Comment, CommentSide, DiffFile, DiffLine } from "../../shared/types";
+import type { CommentDraft } from "../comment-draft";
+import type { SyntaxLines, SyntaxToken } from "../syntax-highlighting";
+import { CodeLine } from "./CodeLine";
 import { CommentEditor } from "./CommentEditor";
 import { CommentThread } from "./CommentThread";
 
@@ -17,8 +20,12 @@ export function anchorKey(side: CommentSide, line: number): string {
 
 interface DiffTableProps {
   file: DiffFile;
+  syntaxLines?: SyntaxLines;
+  renderHunkHeader?: (index: number) => ReactNode;
   commentsByAnchor: Map<string, Comment[]>;
-  editing: EditingAnchor | null;
+  editing: CommentDraft | null;
+  readOnly?: boolean;
+  onDraftBodyChange: (body: string) => void;
   onStartComment: (anchor: EditingAnchor) => void;
   onCancelComment: () => void;
   onSubmitComment: (body: string) => Promise<void>;
@@ -31,13 +38,15 @@ interface DiffTableProps {
 // Shared row pieces
 // ---------------------------------------------------------------------------
 
-function AddCommentButton({ onClick }: { onClick: () => void }) {
+export function AddCommentButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title="Add review comment"
-      className="m-0.5 flex h-4 w-4 items-center justify-center rounded-sm bg-kumo-brand text-white opacity-0 transition-opacity group-hover:opacity-100"
+      aria-label="Add review comment"
+      disabled={disabled}
+      className="m-0.5 flex h-4 w-4 items-center justify-center rounded-sm bg-kumo-brand text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:invisible"
     >
       <Plus size={10} weight="bold" />
     </button>
@@ -50,13 +59,13 @@ function LineNo({ value }: { value?: number }) {
   );
 }
 
-interface UnderRowProps extends Pick<DiffTableProps, "editing" | "onCancelComment" | "onSubmitComment" | "onResolve" | "onReopen" | "onDelete"> {
+interface UnderRowProps extends Pick<DiffTableProps, "editing" | "onDraftBodyChange" | "onCancelComment" | "onSubmitComment" | "onResolve" | "onReopen" | "onDelete"> {
   anchor: EditingAnchor;
   comments: Comment[];
 }
 
 /** Comment threads and/or the editor rendered beneath a diff row. */
-function UnderRow({ anchor, comments, editing, onCancelComment, onSubmitComment, onResolve, onReopen, onDelete }: UnderRowProps) {
+export function UnderRow({ anchor, comments, editing, onDraftBodyChange, onCancelComment, onSubmitComment, onResolve, onReopen, onDelete }: UnderRowProps) {
   const isEditing =
     editing !== null && editing.side === anchor.side && editing.line === anchor.line;
   if (comments.length === 0 && !isEditing) return null;
@@ -65,7 +74,7 @@ function UnderRow({ anchor, comments, editing, onCancelComment, onSubmitComment,
       {comments.map((comment) => (
         <CommentThread key={comment.id} comment={comment} onResolve={onResolve} onReopen={onReopen} onDelete={onDelete} />
       ))}
-      {isEditing && <CommentEditor onSubmit={onSubmitComment} onCancel={onCancelComment} />}
+      {isEditing && <CommentEditor body={editing.body} onBodyChange={onDraftBodyChange} onSubmit={onSubmitComment} onCancel={onCancelComment} />}
     </div>
   );
 }
@@ -81,13 +90,16 @@ export function UnifiedDiffTable(props: DiffTableProps) {
       {file.hunks.map((hunk, hunkIndex) => (
         <Fragment key={hunkIndex}>
           <div className="border-y border-kumo-line bg-kumo-recessed px-3 py-1 text-kumo-subtle select-none">
-            {hunk.header}
+            {props.renderHunkHeader ? props.renderHunkHeader(hunkIndex) : hunk.header}
           </div>
           {hunk.lines.map((line, lineIndex) => {
             const side: CommentSide = line.type === "del" ? "old" : "new";
             const lineNo = (side === "old" ? line.oldLine : line.newLine)!;
             const anchor: EditingAnchor = { side, line: lineNo, lineText: line.content };
             const comments = commentsByAnchor.get(anchorKey(side, lineNo)) ?? [];
+            const oldAnchor: EditingAnchor | null = line.type === "context" && line.oldLine !== undefined
+              ? { side: "old", line: line.oldLine, lineText: line.content } : null;
+            const oldComments = oldAnchor ? commentsByAnchor.get(anchorKey("old", oldAnchor.line)) ?? [] : [];
             return (
               <Fragment key={lineIndex}>
                 <div
@@ -98,7 +110,7 @@ export function UnifiedDiffTable(props: DiffTableProps) {
                   )}
                 >
                   <span className="flex justify-center">
-                    <AddCommentButton onClick={() => onStartComment(anchor)} />
+                    {!props.readOnly && <AddCommentButton onClick={() => onStartComment(anchor)} />}
                   </span>
                   <LineNo value={line.oldLine} />
                   <LineNo value={line.newLine} />
@@ -106,13 +118,21 @@ export function UnifiedDiffTable(props: DiffTableProps) {
                     <span className="select-none text-kumo-subtle">
                       {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
                     </span>
-                    {line.content}
+                    <CodeLine content={line.content} tokens={props.syntaxLines?.get(anchorKey(side, lineNo))} />
                   </span>
                 </div>
+                {oldAnchor && (
+                  <UnderRow
+                    {...props}
+                    anchor={oldAnchor}
+                    comments={oldComments}
+                  />
+                )}
                 <UnderRow
                   anchor={anchor}
                   comments={comments}
                   editing={props.editing}
+                  onDraftBodyChange={props.onDraftBodyChange}
                   onCancelComment={props.onCancelComment}
                   onSubmitComment={props.onSubmitComment}
                   onResolve={props.onResolve}
@@ -165,17 +185,19 @@ function SplitCell({
   line,
   prefix,
   tinted,
+  tokens,
 }: {
   line: DiffLine | null;
   prefix: "+" | "-";
   tinted: boolean;
+  tokens?: SyntaxToken[];
 }) {
   return (
     <span className={cn("whitespace-pre-wrap break-all pr-4", tinted && line && (prefix === "+" ? "diff-add" : "diff-del"))}>
       {line && (
         <>
           <span className="select-none text-kumo-subtle">{prefix}</span>
-          {line.content}
+          <CodeLine content={line.content} tokens={tokens} />
         </>
       )}
     </span>
@@ -189,7 +211,7 @@ export function SplitDiffTable(props: DiffTableProps) {
       {file.hunks.map((hunk, hunkIndex) => (
         <Fragment key={hunkIndex}>
           <div className="border-y border-kumo-line bg-kumo-recessed px-3 py-1 text-kumo-subtle select-none">
-            {hunk.header}
+            {props.renderHunkHeader ? props.renderHunkHeader(hunkIndex) : hunk.header}
           </div>
           {pairHunkLines(hunk.lines).map((row, rowIndex) => {
             const leftAnchor: EditingAnchor | null = row.left
@@ -208,20 +230,21 @@ export function SplitDiffTable(props: DiffTableProps) {
               <Fragment key={rowIndex}>
                 <div className="group grid grid-cols-[1.5rem_3rem_1fr_1.5rem_3rem_1fr]">
                   <span className="flex justify-center">
-                    {leftAnchor && <AddCommentButton onClick={() => onStartComment(leftAnchor)} />}
+                    {!props.readOnly && leftAnchor && <AddCommentButton onClick={() => onStartComment(leftAnchor)} />}
                   </span>
                   <LineNo value={row.left?.oldLine} />
-                  <SplitCell line={row.left} prefix="-" tinted={row.left?.type === "del"} />
+                  <SplitCell line={row.left} prefix="-" tinted={row.left?.type === "del"} tokens={leftAnchor ? props.syntaxLines?.get(anchorKey("old", leftAnchor.line)) : undefined} />
                   <span className="flex justify-center border-l border-kumo-line">
-                    {rightAnchor && <AddCommentButton onClick={() => onStartComment(rightAnchor)} />}
+                    {!props.readOnly && rightAnchor && <AddCommentButton onClick={() => onStartComment(rightAnchor)} />}
                   </span>
                   <LineNo value={row.right?.newLine} />
-                  <SplitCell line={row.right} prefix="+" tinted={row.right?.type === "add"} />
+                  <SplitCell line={row.right} prefix="+" tinted={row.right?.type === "add"} tokens={rightAnchor ? props.syntaxLines?.get(anchorKey("new", rightAnchor.line)) : undefined} />
                 </div>
                 {leftAnchor && (
                   <UnderRow
                     anchor={leftAnchor}
                     comments={leftComments}
+                    onDraftBodyChange={props.onDraftBodyChange}
                     editing={props.editing}
                     onCancelComment={props.onCancelComment}
                     onSubmitComment={props.onSubmitComment}
@@ -234,6 +257,7 @@ export function SplitDiffTable(props: DiffTableProps) {
                   <UnderRow
                     anchor={rightAnchor}
                     comments={rightComments}
+                    onDraftBodyChange={props.onDraftBodyChange}
                     editing={props.editing}
                     onCancelComment={props.onCancelComment}
                     onSubmitComment={props.onSubmitComment}

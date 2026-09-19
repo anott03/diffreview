@@ -4,17 +4,27 @@ import type {
   ApiErrorResponse,
   Comment,
   CommentContext,
+  CommitSummary,
   CreateCommentRequest,
   DiffFile,
   DiffHunk,
   DiffLine,
+  GetCommitDiffResponse,
   GetDiffResponse,
+  ListCommitsResponse,
+  ListFilesResponse,
+  FileContent,
   ListCommentsResponse,
   Meta,
+  Project,
+  ListProjectsResponse,
+  OpenProjectRequest,
+  ServerInfo,
   SseEvent,
   UpdateCommentRequest
 } from "../shared/types";
 import * as S from "./api-schemas";
+import * as Responses from "../shared/response-schemas";
 
 // ---------------------------------------------------------------------------
 // Type-level parity: each Schema's decoded type must be mutually assignable
@@ -49,11 +59,22 @@ export type _Parity = [
   ...MutuallyAssignable<SType<typeof S.CreateCommentRequestSchema>, CreateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.UpdateCommentRequestSchema>, UpdateCommentRequest>,
   ...MutuallyAssignable<SType<typeof S.MetaSchema>, Meta>,
+  ...MutuallyAssignable<SType<typeof S.CommitSummarySchema>, CommitSummary>,
+  ...MutuallyAssignable<SType<typeof S.ListCommitsResponseSchema>, ListCommitsResponse>,
+  ...MutuallyAssignable<SType<typeof S.GetCommitDiffResponseSchema>, GetCommitDiffResponse>,
+  ...MutuallyAssignable<SType<typeof S.ProjectSchema>, Project>,
+  ...MutuallyAssignable<SType<typeof S.ListProjectsResponseSchema>, ListProjectsResponse>,
+  ...MutuallyAssignable<SType<typeof S.OpenProjectRequestSchema>, OpenProjectRequest>,
+  ...MutuallyAssignable<SType<typeof S.ServerInfoSchema>, ServerInfo>,
   ...MutuallyAssignable<SType<typeof S.GetDiffResponseSchema>, GetDiffResponse>,
+  ...MutuallyAssignable<SType<typeof S.ListFilesResponseSchema>, ListFilesResponse>,
+  ...MutuallyAssignable<SType<typeof S.FileContentSchema>, FileContent>,
   ...MutuallyAssignable<SType<typeof S.ListCommentsResponseSchema>, ListCommentsResponse>,
   ...MutuallyAssignable<SType<typeof S.ApiErrorResponseSchema>, ApiErrorResponse>,
   ...MutuallyAssignable<SType<typeof S.SseEventSchema>, SseEvent>
 ];
+
+export type _ParityCheck = Expect<_Parity[number]>;
 
 // ---------------------------------------------------------------------------
 // Runtime behavior
@@ -190,7 +211,79 @@ describe("UpdateCommentRequestSchema", () => {
   });
 });
 
+describe("commit history schemas", () => {
+  it("validates commit summaries", () => {
+    const commit: CommitSummary = {
+      id: "a".repeat(40),
+      subject: "Add history",
+      author: "t",
+      authorEmail: "t@t.t",
+      date: 1700000000000,
+      parents: ["b".repeat(40)]
+    };
+    expect(Schema.decodeUnknownSync(S.CommitSummarySchema)(commit)).toEqual(commit);
+  });
+
+  it("keeps commit history contracts aligned across Effect and Zod", () => {
+    const commit: CommitSummary = {
+      id: "a".repeat(40),
+      subject: "Add history",
+      author: "t",
+      authorEmail: "t@t.t",
+      date: 1700000000000,
+      parents: []
+    };
+    const list: ListCommitsResponse = { commits: [commit] };
+    expect(Responses.ListCommitsResponseSchema.parse(Schema.encodeSync(S.ListCommitsResponseSchema)(list))).toEqual(list);
+
+    const file: DiffFile = {
+      oldPath: null,
+      newPath: "a.txt",
+      status: "added",
+      isBinary: false,
+      hunks: [],
+      additions: 1,
+      deletions: 0
+    };
+    const diff: GetCommitDiffResponse = { files: [file] };
+    expect(Responses.GetCommitDiffResponseSchema.parse(Schema.encodeSync(S.GetCommitDiffResponseSchema)(diff))).toEqual(diff);
+  });
+});
+
 describe("response schemas", () => {
+  it("keeps working tree file contracts aligned across Effect and Zod", () => {
+    const files: ListFilesResponse = { files: ["a.txt", "nested/b.txt"] };
+    expect(Responses.ListFilesResponseSchema.parse(Schema.encodeSync(S.ListFilesResponseSchema)(files))).toEqual(files);
+    for (const kind of ["text", "binary", "too-large", "symlink", "unsupported"] as const) {
+      const file: FileContent = { path: "a.txt", kind, content: kind === "text" || kind === "symlink" ? "text" : null };
+      expect(Responses.FileContentSchema.parse(Schema.encodeSync(S.FileContentSchema)(file))).toEqual(file);
+    }
+    for (const baseContent of ["original\n", "", null]) {
+      const file: FileContent = { path: "a.txt", kind: "text", content: "changed\n", baseContent, reviewId: "review" };
+      expect(Responses.FileContentSchema.parse(Schema.encodeSync(S.FileContentSchema)(file))).toEqual(file);
+    }
+    const invalid = { path: "a.txt", kind: "directory", content: null };
+    expect(() => Responses.FileContentSchema.parse(invalid)).toThrow();
+    expect(() => Schema.decodeUnknownSync(S.FileContentSchema)(invalid)).toThrow();
+  });
+
+  it("keeps project and server contracts aligned across Effect and Zod", () => {
+    const project: Project = { id: "root-hash", root: "/repo", name: "repo", openedAt: 123 };
+    const info: ServerInfo = { service: "diffreview", protocolVersion: 1, instanceId: "instance", pid: 42, startedAt: 123 };
+    expect(Responses.ProjectSchema.parse(Schema.encodeSync(S.ProjectSchema)(project))).toEqual(project);
+    expect(Responses.ListProjectsResponseSchema.parse(Schema.encodeSync(S.ListProjectsResponseSchema)({ projects: [project] }))).toEqual({ projects: [project] });
+    expect(Responses.ServerInfoSchema.parse(Schema.encodeSync(S.ServerInfoSchema)(info))).toEqual(info);
+    expect(() => Responses.ServerInfoSchema.parse({ ...info, protocolVersion: 2 })).toThrow();
+    expect(() => Schema.decodeUnknownSync(S.ServerInfoSchema)({ ...info, service: "other" })).toThrow();
+    for (const event of [
+      { type: "diff", projectId: project.id, at: 1 },
+      { type: "comments", projectId: project.id, at: 1 },
+      { type: "projects", at: 1 }
+    ] satisfies SseEvent[]) {
+      expect(Responses.SseEventSchema.parse(Schema.encodeSync(S.SseEventSchema)(event))).toEqual(event);
+    }
+  });
+
   it("MetaSchema matches meta shape", () => {
     const meta: Meta = {
       repoRoot: "/r",
@@ -230,7 +323,9 @@ describe("response schemas", () => {
   });
 
   it("SseEventSchema validates event frames", () => {
-    const ev: SseEvent = { type: "diff", at: 1700000000000 };
+    const ev: SseEvent = { type: "diff", projectId: "project-1", at: 1700000000000 };
     expect(Schema.decodeUnknownSync(S.SseEventSchema)(ev)).toEqual(ev);
+    expect(Schema.decodeUnknownSync(S.SseEventSchema)({ type: "projects", at: 1 })).toEqual({ type: "projects", at: 1 });
+    expect(() => Schema.decodeUnknownSync(S.SseEventSchema)({ type: "diff", at: 1 })).toThrow();
   });
 });

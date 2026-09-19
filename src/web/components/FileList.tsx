@@ -31,6 +31,8 @@ export interface FileListEntry {
 interface FileListProps {
   files: FileListEntry[];
   title?: string;
+  header?: ReactNode;
+  notice?: ReactNode;
   commentLabel?: string;
   selectedPath: string | null;
   onSelect: (path: string) => void;
@@ -38,7 +40,7 @@ interface FileListProps {
   onToggleDirectory: (path: string) => void;
 }
 
-export function FileList({ files, title = "Changed files", commentLabel = "open comments", selectedPath, onSelect, collapsedDirectories, onToggleDirectory }: FileListProps) {
+export function FileList({ files, title = "Changed files", header, notice, commentLabel = "open comments", selectedPath, onSelect, collapsedDirectories, onToggleDirectory }: FileListProps) {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const tree = useMemo(() => buildPathTree(files, (file) => file.path), [files]);
@@ -110,10 +112,11 @@ export function FileList({ files, title = "Changed files", commentLabel = "open 
             {files.length}
           </span>
         ) : (
-          <>{title} ({files.length})</>
+          <div className="min-w-0 flex-1">{header ?? <>{title} ({files.length})</>}</div>
         )}
       </div>
       <Sidebar.Content>
+        {!collapsed && notice}
         <Sidebar.Menu aria-label={title}>
           {collapsed
             ? files.map((file) => renderFile(file, file.path, 0))

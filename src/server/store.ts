@@ -121,15 +121,20 @@ function openDatabaseSync(dbPath: string): DatabaseSync {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
   const db = new DatabaseSync(dbPath);
-  db.exec(SCHEMA);
-  const columns = db.prepare("PRAGMA table_info(comments)").all();
-  if (!columns.some((column) => column.name === "context")) {
-    db.exec("ALTER TABLE comments ADD COLUMN context TEXT");
+  try {
+    db.exec(SCHEMA);
+    const columns = db.prepare("PRAGMA table_info(comments)").all();
+    if (!columns.some((column) => column.name === "context")) {
+      db.exec("ALTER TABLE comments ADD COLUMN context TEXT");
+    }
+    if (!columns.some((column) => column.name === "review_id")) {
+      db.exec("ALTER TABLE comments ADD COLUMN review_id TEXT");
+    }
+    return db;
+  } catch (cause) {
+    db.close();
+    throw cause;
   }
-  if (!columns.some((column) => column.name === "review_id")) {
-    db.exec("ALTER TABLE comments ADD COLUMN review_id TEXT");
-  }
-  return db;
 }
 
 function listComments(db: DatabaseSync, filter: CommentFilter = {}): Comment[] {

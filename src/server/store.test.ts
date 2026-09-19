@@ -8,6 +8,7 @@ import { rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { CommentStore, StoreError } from "./store";
 
 const baseInput = {
@@ -248,6 +249,38 @@ describe("CommentStore (Effect service)", () => {
         rmSync(block, { force: true });
       }
     }));
+
+  it.each([
+    ["schema creation", "CREATE TABLE comments (id TEXT)", "no such column: status"],
+    ["migration", "CREATE TABLE comments (id TEXT, status TEXT, context TEXT GENERATED ALWAYS AS ('saved'))", "duplicate column name: context"]
+  ])("closes the acquired database when %s fails and allows a repaired database to reopen", async (_phase, schema, message) => {
+    const dir = mkdtempSync(join(tmpdir(), "diffreview-store-acquisition-"));
+    const dbPath = join(dir, "test.sqlite");
+    const invalid = new DatabaseSync(dbPath);
+    invalid.exec(schema);
+    invalid.close();
+    const close = vi.spyOn(DatabaseSync.prototype, "close");
+    try {
+      const error = await Effect.runPromise(Effect.flip(
+        CommentStore.use((store) => store.list()).pipe(Effect.provide(CommentStore.layer(dbPath)))
+      ));
+      expect(error).toBeInstanceOf(StoreError);
+      expect(error.op).toBe("open");
+      expect(String(error.cause)).toContain(message);
+      expect(close).toHaveBeenCalledTimes(1);
+      close.mockRestore();
+      const repaired = new DatabaseSync(dbPath);
+      repaired.exec("DROP TABLE comments");
+      repaired.close();
+      const comments = await Effect.runPromise(
+        CommentStore.use((store) => store.list()).pipe(Effect.provide(CommentStore.layer(dbPath)))
+      );
+      expect(comments).toEqual([]);
+    } finally {
+      close.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it("layer builds produce independent instances", async () => {
     // Two builds of the same :memory: layer must not share state.

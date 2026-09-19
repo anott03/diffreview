@@ -2,10 +2,19 @@ import { z } from "zod";
 import type {
   ApiErrorResponse,
   Comment,
+  CommitSummary,
   DiffFile,
+  GetCommitDiffResponse,
   GetDiffResponse,
+  ListFilesResponse,
+  FileContent,
   ListCommentsResponse,
+  ListCommitsResponse,
   Meta,
+  Project,
+  ListProjectsResponse,
+  ServerInfo,
+  SseEvent,
 } from "./types";
 
 const DiffFileSchema = z.object({
@@ -65,9 +74,62 @@ export const GetDiffResponseSchema = z.object({
   reviewId: z.string(),
 }) satisfies z.ZodType<GetDiffResponse>;
 
+export const CommitSummarySchema = z.object({
+  id: z.string(),
+  subject: z.string(),
+  author: z.string(),
+  authorEmail: z.string(),
+  date: z.number(),
+  parents: z.array(z.string()),
+}) satisfies z.ZodType<CommitSummary>;
+
+export const ListCommitsResponseSchema = z.object({
+  commits: z.array(CommitSummarySchema),
+}) satisfies z.ZodType<ListCommitsResponse>;
+
+export const GetCommitDiffResponseSchema = z.object({
+  files: z.array(DiffFileSchema),
+}) satisfies z.ZodType<GetCommitDiffResponse>;
+
+export const ListFilesResponseSchema = z.object({
+  files: z.array(z.string()),
+}) satisfies z.ZodType<ListFilesResponse>;
+
+export const FileContentSchema = z.object({
+  path: z.string(),
+  content: z.string().nullable(),
+  baseContent: z.string().nullable().optional(),
+  reviewId: z.string().optional(),
+  kind: z.enum(["text", "binary", "too-large", "symlink", "unsupported"]),
+}) satisfies z.ZodType<FileContent>;
+
 export const ListCommentsResponseSchema = z.object({
   comments: z.array(CommentSchema),
 }) satisfies z.ZodType<ListCommentsResponse>;
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  root: z.string(),
+  name: z.string(),
+  openedAt: z.number(),
+}) satisfies z.ZodType<Project>;
+
+export const ListProjectsResponseSchema = z.object({
+  projects: z.array(ProjectSchema),
+}) satisfies z.ZodType<ListProjectsResponse>;
+
+export const ServerInfoSchema = z.object({
+  service: z.literal("diffreview"),
+  protocolVersion: z.literal(1),
+  instanceId: z.string(),
+  pid: z.number(),
+  startedAt: z.number(),
+}) satisfies z.ZodType<ServerInfo>;
+
+export const SseEventSchema = z.union([
+  z.object({ type: z.enum(["diff", "comments"]), projectId: z.string(), at: z.number() }),
+  z.object({ type: z.literal("projects"), at: z.number() }),
+]) satisfies z.ZodType<SseEvent>;
 
 export const ApiErrorResponseSchema = z.object({
   error: z.string(),

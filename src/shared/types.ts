@@ -115,12 +115,72 @@ export interface Meta {
 }
 
 // ---------------------------------------------------------------------------
+// Commit history
+// ---------------------------------------------------------------------------
+
+export interface CommitSummary {
+  /** Full git commit id (40 hex digits). */
+  id: string;
+  /** First line of the commit message. */
+  subject: string;
+  author: string;
+  authorEmail: string;
+  /** Author date in milliseconds since the Unix epoch. */
+  date: number;
+  /** Parent commit ids; empty for a root commit, two or more for a merge. */
+  parents: string[];
+}
+
+export interface ListCommitsResponse {
+  commits: CommitSummary[];
+}
+
+export interface GetCommitDiffResponse {
+  files: DiffFile[];
+}
+
+// ---------------------------------------------------------------------------
 // REST API contracts
 // ---------------------------------------------------------------------------
+
+export interface Project {
+  id: string;
+  root: string;
+  name: string;
+  openedAt: number;
+}
+
+export interface ListProjectsResponse {
+  projects: Project[];
+}
+
+export interface OpenProjectRequest {
+  path: string;
+}
+
+export interface ServerInfo {
+  service: "diffreview";
+  protocolVersion: 1;
+  instanceId: string;
+  pid: number;
+  startedAt: number;
+}
 
 export interface GetDiffResponse {
   files: DiffFile[];
   reviewId: string;
+}
+
+export interface ListFilesResponse {
+  files: string[];
+}
+
+export interface FileContent {
+  path: string;
+  content: string | null;
+  baseContent?: string | null;
+  reviewId?: string;
+  kind: "text" | "binary" | "too-large" | "symlink" | "unsupported";
 }
 
 export interface ListCommentsResponse {
@@ -153,29 +213,9 @@ export interface ApiErrorResponse {
 // Server-sent events
 // ---------------------------------------------------------------------------
 
-/**
- * SSE messages are lightweight invalidation signals — clients refetch the
- * corresponding resource (/api/diff or /api/comments) on receipt.
- */
-export type SseEventType = "diff" | "comments";
+/** Clients refetch the named project's resources on invalidation. */
+export type SseEventType = "diff" | "comments" | "projects";
 
-export interface SseEvent {
-  type: SseEventType;
-  /** Millisecond timestamp of the change (ordering/debugging only). */
-  at: number;
-}
-
-// ---------------------------------------------------------------------------
-// MCP discovery session file
-// ---------------------------------------------------------------------------
-
-/**
- * Written by the server to ~/.local/share/diff-review/sessions/<hash>.json,
- * read by diffreview-mcp to discover the running instance for a repo.
- */
-export interface SessionInfo {
-  port: number;
-  pid: number;
-  repoRoot: string;
-  startedAt: number;
-}
+export type SseEvent =
+  | { type: "diff" | "comments"; projectId: string; at: number }
+  | { type: "projects"; at: number };
