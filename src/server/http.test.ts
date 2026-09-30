@@ -236,7 +236,7 @@ describe("Effect HTTP server (wire contract)", () => {
     const decoder = new TextDecoder();
     let text = "";
     const deadline = Date.now() + 4000;
-    while (!text.includes("event:") && Date.now() < deadline) {
+    while (!text.includes("event: diff") && Date.now() < deadline) {
       // Trigger a real diff change; the watcher polls every 25ms.
       await appendFile(join(repoDir, "a.txt"), "x\n");
       const chunk = await reader.read();

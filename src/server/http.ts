@@ -68,11 +68,13 @@ export const ApiHandlers = HttpApiBuilder.group(Api, "api", Effect.fn(function*(
         event: event.type,
         data: event
       })));
-      const pings = Stream.fromSchedule(Schedule.spaced("30 seconds")).pipe(Stream.map(() => ({
-        id: undefined,
-        event: "ping",
-        data: {}
-      })));
+      const ping = { id: undefined, event: "ping", data: {} };
+      // The HTTP layer only flushes the response head once the first body
+      // chunk is ready, and the client fires EventSource "open" on the head.
+      // Emit a ping immediately so browsers connect without waiting for the
+      // first change or the 30-second heartbeat.
+      const pings = Stream.concat(Stream.make(ping), Stream.fromSchedule(Schedule.spaced("30 seconds"))
+        .pipe(Stream.map(() => ping)));
       return Effect.succeed(Stream.merge(events, pings));
     });
 }));
