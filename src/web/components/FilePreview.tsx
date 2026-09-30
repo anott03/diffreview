@@ -79,7 +79,7 @@ export function FilePreview({ path, active, revision, connectionVersion, loadFil
     try {
       if (!active || !file || file.kind !== "text") throw new Error("Reload the file before saving your comment.");
       await onSubmitComment({ file: path, ...anchor, body });
-      onDraftChange(null);
+      onDraftChange(null, anchor);
     } catch (cause) {
       setSaveError(String(cause));
       throw cause;
@@ -153,8 +153,8 @@ export function FilePreview({ path, active, revision, connectionVersion, loadFil
                         anchor={isEditing ? editing : anchor}
                         comments={anchored}
                         editing={editing}
-                        onDraftBodyChange={(body) => { if (editing) onDraftChange({ ...editing, body }); }}
-                        onCancelComment={() => { onDraftChange(null); setSaveError(null); }}
+                        onDraftBodyChange={(body) => { if (editing) onDraftChange({ ...editing, body }, editing); }}
+                        onCancelComment={() => { if (editing) onDraftChange(null, editing); setSaveError(null); }}
                         onSubmitComment={submitComment}
                         onResolve={onResolve}
                         onReopen={onReopen}

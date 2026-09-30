@@ -6,9 +6,10 @@ interface CommentEditorProps {
   onBodyChange: (body: string) => void;
   onSubmit: (body: string) => Promise<void>;
   onCancel: () => void;
+  cancelLabel?: string;
 }
 
-export function CommentEditor({ body, onBodyChange, onSubmit, onCancel }: CommentEditorProps) {
+export function CommentEditor({ body, onBodyChange, onSubmit, onCancel, cancelLabel = "Cancel" }: CommentEditorProps) {
   const [saving, setSaving] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -35,6 +36,7 @@ export function CommentEditor({ body, onBodyChange, onSubmit, onCancel }: Commen
       <InputArea
         ref={areaRef}
         value={body}
+        aria-label="Comment draft"
         onValueChange={onBodyChange}
         placeholder="Leave a review comment… (Markdown supported · ⌘/Ctrl+Enter to submit)"
         autoResize
@@ -50,7 +52,7 @@ export function CommentEditor({ body, onBodyChange, onSubmit, onCancel }: Commen
           Comment
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
+          {cancelLabel}
         </Button>
       </div>
     </div>

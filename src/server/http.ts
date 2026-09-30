@@ -122,7 +122,37 @@ export function findWebRoot(): string | null {
   return existsSync(join(candidate, "index.html")) && existsSync(join(candidate, "assets")) ? candidate : null;
 }
 
-export const ApiRoutes = HttpApiBuilder.layer(Api).pipe(Layer.provide(ApiHandlers));
+export const mutationProtection = HttpRouter.middleware((httpEffect) =>
+  Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
+    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
+      return httpEffect;
+    }
+    const origin = request.headers["origin"];
+    const expectedOrigin = URL.parse(`http://${request.headers["host"] ?? ""}`)?.origin;
+    const fetchSite = request.headers["sec-fetch-site"];
+    if ((origin !== undefined && origin !== expectedOrigin) ||
+      (fetchSite !== undefined && fetchSite !== "same-origin" && fetchSite !== "none")) {
+      return Effect.succeed(HttpServerResponse.text(JSON.stringify({ error: "Cross-origin mutation requests are not allowed." }), {
+        status: 403,
+        contentType: "application/json"
+      }));
+    }
+    if (request.method === "POST" || request.method === "PATCH" || request.method === "PUT") {
+      const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+      if (contentType !== "application/json") {
+        return Effect.succeed(HttpServerResponse.text(JSON.stringify({ error: "Mutation requests require Content-Type: application/json." }), {
+          status: 415,
+          contentType: "application/json"
+        }));
+      }
+    }
+    return httpEffect;
+  }), { global: true });
+
+export const ApiRoutes = HttpApiBuilder.layer(Api).pipe(
+  Layer.provide(ApiHandlers),
+  Layer.provide(mutationProtection)
+);
 
 export const projectServices = (options: ServerOptions, catalogPath?: string) => {
   const core = Git.layer.pipe(

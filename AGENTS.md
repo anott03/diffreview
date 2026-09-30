@@ -65,6 +65,10 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
 
 - UI and MCP are **read-only consumers** of the server. The server is the only
   writer to the comment store.
+- API mutations reject cross-origin Origin and Fetch Metadata headers before
+  decoding bodies. POST/PATCH/PUT require application/json. CLI/MCP requests
+  without Origin remain supported. Vite rewrites Origin only for requests from
+  its own loopback origin; do not allow arbitrary localhost origins on the API.
 - The project picker completes paths through `/api/directories?path=...` on the
   server's filesystem. This endpoint intentionally accepts arbitrary paths and
   follows directory symlinks, like project registration; project-scoped file
@@ -92,8 +96,12 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   tracked and nonignored untracked working-tree files. Unchanged files open a
   comment-enabled `FilePreview` via `/api/projects/:projectId/file?path=...`; changed files
   still open their diff. Reads reject traversal and symlink parents, return symlink
-  targets as text rather than following them, and cap contents at 1 MiB. The preview
-  displays at most 10,000 lines. Current matching new-side comments appear inline;
+  targets as text rather than following them, and cap contents at 1 MiB.
+  Untracked diff reads share the bounded descriptor reader, with Git-compatible
+  binary detection and decoding. Linux verifies descriptor paths through /proc
+  and pins symlink reads to a parent descriptor. macOS remains best-effort:
+  path/inode rechecks cannot fully prevent concurrent parent-symlink swaps.
+  The preview displays at most 10,000 lines. Current matching new-side comments appear inline;
   historical, outdated and old-side comments retain saved context above the file.
   DiffView lazily reads the same endpoint with `context=true` and the expected
   `reviewId` to expand unchanged code before, between, and after hunks in both
@@ -104,6 +112,11 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   normalize CRLF, while symlink targets remain raw.
   Comment drafts live in ProjectWorkspace keyed by review and path, surviving
   preview/diff transitions and expanded-row reloads. Editors use controlled bodies.
+  Successful saves clear only the exact submitted draft; the workspace guards
+  concurrent saves per review/path across editor remounts. RetainedDrafts exposes
+  drafts even after HEAD changes or file removal. Carrying a draft into the current
+  review is explicit and never overwrites another draft; closing the tab still
+  discards client drafts.
   File tree and preview reads abort on deactivation
   and refresh on project events and reconnection.
 - Commits mode lists the current branch's history through

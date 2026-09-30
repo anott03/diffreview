@@ -13,8 +13,9 @@ import { DiffView, type Layout } from "./components/DiffView";
 import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
 import { FilePreview } from "./components/FilePreview";
+import { RetainedDrafts } from "./components/RetainedDrafts";
 import { filterComments } from "./comment-filter";
-import type { CommentDraft } from "./comment-draft";
+import { commentDraftKey, type CommentDraft, type RetainedCommentDraft } from "./comment-draft";
 
 interface ProjectWorkspaceProps {
   projectId: string;
@@ -35,6 +36,7 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   activeRef.current = active;
   const mounted = useRef(false);
   const pendingRead = useRef<AbortController | null>(null);
+  const pendingSaves = useRef(new Set<string>());
   const prevComments = useRef<Comment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const notify = useCallback((...args: Parameters<typeof toasts.add>) => {
@@ -43,12 +45,29 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   const [files, setFiles] = useState<DiffFile[] | null>(null);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
-  const [drafts, setDrafts] = useState<Map<string, CommentDraft>>(new Map());
-  const changeDraft = (key: string, draft: CommentDraft | null) => {
+  const [drafts, setDrafts] = useState<Map<string, RetainedCommentDraft>>(new Map());
+  const changeDraft = (draftReviewId: string | null, file: string, draft: CommentDraft | null, expectedDraft?: CommentDraft) => {
+    if (!draftReviewId) return;
+    const key = commentDraftKey(draftReviewId, file);
     setDrafts((previous) => {
+      const existing = previous.get(key);
+      if (expectedDraft && existing?.draft !== expectedDraft) return previous;
+      if (!expectedDraft && existing) return previous;
       const next = new Map(previous);
-      if (draft) next.set(key, draft);
+      if (draft) next.set(key, { reviewId: draftReviewId, file, draft });
       else next.delete(key);
+      return next;
+    });
+  };
+  const carryDraft = (entry: RetainedCommentDraft) => {
+    if (!reviewId || entry.reviewId === reviewId) return;
+    setDrafts((previous) => {
+      const sourceKey = commentDraftKey(entry.reviewId, entry.file);
+      const targetKey = commentDraftKey(reviewId, entry.file);
+      if (previous.get(sourceKey)?.draft !== entry.draft || previous.has(targetKey)) return previous;
+      const next = new Map(previous);
+      next.delete(sourceKey);
+      next.set(targetKey, { ...entry, reviewId, draft: { ...entry.draft } });
       return next;
     });
   };
@@ -121,9 +140,16 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   const submitComment = async (input: CreateCommentRequest) => {
     try {
       const request = { ...input };
-      if (reviewId) request.reviewId = reviewId;
-      await api.createComment(request);
-      await refresh();
+      if (!request.reviewId && reviewId) request.reviewId = reviewId;
+      const key = commentDraftKey(request.reviewId ?? null, request.file);
+      if (pendingSaves.current.has(key)) throw new Error("A comment for this file is still saving. Wait before submitting again.");
+      pendingSaves.current.add(key);
+      try {
+        await api.createComment(request);
+        await refresh();
+      } finally {
+        pendingSaves.current.delete(key);
+      }
     } catch (err) {
       notify({ variant: "error", title: "Failed to save comment", description: String(err) });
       throw err;
@@ -270,6 +296,16 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
         toolbarContainer
       )}
 
+      <RetainedDrafts
+        drafts={drafts}
+        reviewId={reviewId}
+        onChange={(entry, draft) => changeDraft(entry.reviewId, entry.file, draft, entry.draft)}
+        onCarry={carryDraft}
+        onSubmit={async (entry, body) => {
+          await submitComment({ ...entry.draft, file: entry.file, reviewId: entry.reviewId, body });
+          changeDraft(entry.reviewId, entry.file, null, entry.draft);
+        }}
+      />
       <div className="relative flex min-h-0 flex-1">
         {!historyMode && (
           <>
@@ -317,8 +353,8 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
               <FilePreview
                 key={`${reviewId}:${previewPath}`}
                 path={previewPath}
-                draft={drafts.get(`${reviewId}:${previewPath}`) ?? null}
-                onDraftChange={(draft) => changeDraft(`${reviewId}:${previewPath}`, draft)}
+                draft={drafts.get(commentDraftKey(reviewId, previewPath))?.draft ?? null}
+                onDraftChange={(draft, expected) => changeDraft(reviewId, previewPath, draft, expected)}
                 active={active}
                 revision={revision}
                 connectionVersion={connectionVersion}
@@ -356,8 +392,8 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
                       connectionVersion={connectionVersion}
                       loadContext={api.getFileContext}
                       reviewId={reviewId ?? ""}
-                      draft={drafts.get(`${reviewId}:${path}`) ?? null}
-                      onDraftChange={(draft) => changeDraft(`${reviewId}:${path}`, draft)}
+                      draft={drafts.get(commentDraftKey(reviewId, path))?.draft ?? null}
+                      onDraftChange={(draft, expected) => changeDraft(reviewId, path, draft, expected)}
                       layout={layout}
                       comments={visibleComments.filter((c) => c.file === path)}
                       onCarryForward={carryForwardComment}
