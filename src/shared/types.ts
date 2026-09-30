@@ -158,6 +158,10 @@ export interface OpenProjectRequest {
   path: string;
 }
 
+export interface ListDirectoriesResponse {
+  directories: string[];
+}
+
 export interface ServerInfo {
   service: "diffreview";
   protocolVersion: 1;

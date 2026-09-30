@@ -1,8 +1,8 @@
 import { Button } from "@cloudflare/kumo/components/button";
-import { Input } from "@cloudflare/kumo/components/input";
 import { Loader } from "@cloudflare/kumo/components/loader";
 import { useState, type FormEvent } from "react";
 import type { Project } from "../../shared/types";
+import { DirectoryInput } from "./DirectoryInput";
 
 interface ProjectPickerProps {
   projects: Project[] | null;
@@ -34,32 +34,21 @@ export function ProjectPicker({ projects, error, onRetry, onOpen, onSelect }: Pr
 
   return (
     <main className="h-full overflow-y-auto px-4 py-6 sm:px-8 sm:py-10">
-      <div className="mx-auto grid max-w-3xl gap-8 text-sm">
-        <div className="grid gap-1.5">
-          <h1 className="text-xl font-semibold">Projects</h1>
-          <p className="text-kumo-subtle">Open a Git working tree to review its changes and comments.</p>
-        </div>
+      <div className="mx-auto grid max-w-3xl gap-4 text-sm">
+        <h1 className="text-xl font-semibold">Projects</h1>
         <form onSubmit={(event) => void submit(event)} className="grid gap-3 rounded-lg bg-kumo-elevated px-5 py-4 ring ring-kumo-line">
-          <label htmlFor="project-path" className="font-medium">Working-tree path</label>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-            <Input
-              id="project-path"
-              aria-describedby="project-path-help"
-              aria-invalid={openError !== null}
-              className="min-w-0 flex-1 text-sm"
+            <DirectoryInput
               value={path}
               onValueChange={setPath}
-              placeholder="/home/you/project"
-              autoComplete="off"
-              required
+              invalid={openError !== null}
               disabled={opening}
             />
             <Button type="submit" variant="primary" className="shrink-0 text-sm" loading={opening} disabled={!path.trim() || opening}>Open project</Button>
           </div>
-          <p id="project-path-help" className="text-kumo-subtle">Use a path on the machine running the diffreview server, not an uploaded folder.</p>
           {openError && <p role="alert" className="break-words text-kumo-danger">{openError}</p>}
         </form>
-        <section aria-labelledby="recent-projects" className="grid gap-3">
+        <section aria-labelledby="recent-projects" className="mt-4 grid gap-3">
           <h2 id="recent-projects" className="text-lg font-semibold">Recent projects</h2>
           {error && (
             <div role="alert" className="grid gap-2">
@@ -81,7 +70,6 @@ export function ProjectPicker({ projects, error, onRetry, onOpen, onSelect }: Pr
                   <span className="grid min-w-0 flex-1 gap-1">
                     <span className="font-medium">{project.name}</span>
                     <span className="break-all font-mono text-[0.9em] text-kumo-subtle">{project.root}</span>
-                    <span className="text-kumo-subtle">Last opened {new Date(project.openedAt).toLocaleString()}</span>
                   </span>
                 </Button>
               </li>
