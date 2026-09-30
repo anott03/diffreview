@@ -140,6 +140,12 @@ export const ListProjectsResponseSchema = Schema.Struct({
 
 export const OpenProjectRequestSchema = Schema.Struct({ path: Schema.NonEmptyString });
 
+export const DirectoryPathSchema = bounded(1, 4096);
+
+export const ListDirectoriesResponseSchema = Schema.Struct({
+  directories: ArrayOf(Schema.String)
+});
+
 export const ServerInfoSchema = Schema.Struct({
   service: Schema.Literal("diffreview"),
   protocolVersion: Schema.Literal(1),

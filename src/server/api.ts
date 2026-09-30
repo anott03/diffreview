@@ -39,6 +39,11 @@ export class ApiGroup extends HttpApiGroup.make("api")
     success: S.ListProjectsResponseSchema,
     error: InternalErrorSchema
   }))
+  .add(HttpApiEndpoint.get("listDirectories", "/directories", {
+    query: { path: S.DirectoryPathSchema },
+    success: S.ListDirectoriesResponseSchema,
+    error: InternalErrorSchema
+  }))
   .add(HttpApiEndpoint.post("openProject", "/projects", {
     payload: S.OpenProjectRequestSchema,
     success: S.ProjectSchema,

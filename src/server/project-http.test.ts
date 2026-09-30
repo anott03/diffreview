@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Layer, Schema } from "effect";
@@ -71,6 +71,38 @@ describe("project-scoped HTTP", () => {
       const response = await request("/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
       expect(response.status).toBe(400);
       expect((await decode(response, S.ApiErrorResponseSchema)).error.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("completes directories without registering a project and validates the input path", async () => {
+    const parent = join(directory, "folders #?&é");
+    await mkdir(parent);
+    for (const name of ["Alpha", "beta"]) await mkdir(join(parent, name));
+    await writeFile(join(parent, "notes.txt"), "not a directory");
+    const complete = (path: string) => request(`/directories?${new URLSearchParams({ path })}`);
+    expect(await decode(await complete(`${parent}/`), S.ListDirectoriesResponseSchema)).toEqual({
+      directories: [`${join(parent, "Alpha")}/`, `${join(parent, "beta")}/`]
+    });
+    expect(await decode(await complete(join(parent, "al")), S.ListDirectoriesResponseSchema)).toEqual({
+      directories: [`${join(parent, "Alpha")}/`]
+    });
+    expect(await decode(await complete(`${join(parent, "missing")}/`), S.ListDirectoriesResponseSchema)).toEqual({ directories: [] });
+    expect((await decode(await request("/projects"), S.ListProjectsResponseSchema)).projects).toHaveLength(2);
+    expect((await request("/directories")).status).toBe(400);
+    expect((await complete("")).status).toBe(400);
+    expect((await complete("a".repeat(4097))).status).toBe(400);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("returns a listing error for unreadable directories", async () => {
+    const parent = join(directory, "unreadable");
+    await mkdir(parent);
+    await chmod(parent, 0);
+    try {
+      const response = await request(`/directories?${new URLSearchParams({ path: `${parent}/` })}`);
+      expect(response.status).toBe(500);
+      expect((await decode(response, S.ApiErrorResponseSchema)).error).toContain("EACCES");
+    } finally {
+      await chmod(parent, 0o700);
     }
   });
 

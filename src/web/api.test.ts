@@ -84,6 +84,26 @@ describe("project-bound requests", () => {
     await expect(createProjectApi("missing").getDiff()).rejects.toThrow("Working tree is missing");
   });
 
+  it("encodes directory completion paths and forwards cancellation", async () => {
+    const path = "/tmp/dir #?&é/";
+    const directories = [`${path}child/`];
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ directories }));
+    vi.stubGlobal("fetch", fetcher);
+    const controller = new AbortController();
+    expect(await globalApi.getDirectories(path, controller.signal)).toEqual({ directories });
+    const url = new URL(fetcher.mock.calls[0]![0], "http://localhost");
+    expect(url.pathname).toBe("/api/directories");
+    expect(url.searchParams.get("path")).toBe(path);
+    expect(fetcher.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
+  it("rejects invalid directory responses and surfaces listing errors", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ directories: [123] }));
+    await expect(globalApi.getDirectories("/tmp/")).rejects.toThrow();
+    vi.stubGlobal("fetch", async () => Response.json({ error: "Permission denied" }, { status: 500 }));
+    await expect(globalApi.getDirectories("/tmp/")).rejects.toThrow("Permission denied");
+  });
+
   it("validates global responses and sends paths only to project registration", async () => {
     const project = { id: "a", root: "/a", name: "a", openedAt: 1 };
     const fetcher = vi.fn(async () => Response.json(project));

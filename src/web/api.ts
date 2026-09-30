@@ -13,6 +13,7 @@ import {
   MetaSchema,
   ProjectSchema,
   ListProjectsResponseSchema,
+  ListDirectoriesResponseSchema,
   ServerInfoSchema,
   SseEventSchema,
 } from "../shared/response-schemas";
@@ -41,6 +42,8 @@ export const globalApi = {
   getServer: (signal?: AbortSignal) => request("/api/server", ServerInfoSchema, { signal }),
   getProjects: (signal?: AbortSignal) => request("/api/projects", ListProjectsResponseSchema, { signal }),
   openProject: (path: string) => request("/api/projects", ProjectSchema, { method: "POST", ...json({ path }) }),
+  getDirectories: (path: string, signal?: AbortSignal) =>
+    request(`/api/directories?${new URLSearchParams({ path })}`, ListDirectoriesResponseSchema, { signal }),
 };
 
 export function createProjectApi(projectId: string) {

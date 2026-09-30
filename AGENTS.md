@@ -65,6 +65,15 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
 
 - UI and MCP are **read-only consumers** of the server. The server is the only
   writer to the comment store.
+- The project picker completes paths through `/api/directories?path=...` on the
+  server's filesystem. This endpoint intentionally accepts arbitrary paths and
+  follows directory symlinks, like project registration; project-scoped file
+  reads keep their stricter symlink restrictions. It relies on the server's
+  loopback binding and Host allowlist. Do not expose it on a public interface.
+  Prefix matching is case-insensitive, empty paths are rejected, and nonexistent
+  parents return no suggestions. Other listing errors reach the input's error
+  state. Results include all matching directories rather than silently truncating
+  the dropdown.
 - One browser SSE connection receives `{type, projectId, at}` review invalidations
   and `{type: "projects", at}` catalog invalidations. Active workspaces refetch;
   inactive workspaces refresh on activation. Reconnection refreshes catalog and

@@ -13,6 +13,7 @@ import type {
   Meta,
   Project,
   ListProjectsResponse,
+  ListDirectoriesResponse,
   ServerInfo,
   SseEvent,
 } from "./types";
@@ -117,6 +118,10 @@ export const ProjectSchema = z.object({
 export const ListProjectsResponseSchema = z.object({
   projects: z.array(ProjectSchema),
 }) satisfies z.ZodType<ListProjectsResponse>;
+
+export const ListDirectoriesResponseSchema = z.object({
+  directories: z.array(z.string()),
+}) satisfies z.ZodType<ListDirectoriesResponse>;
 
 export const ServerInfoSchema = z.object({
   service: z.literal("diffreview"),

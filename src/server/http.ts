@@ -7,7 +7,8 @@ import { NodeFileSystem, NodeHttpServer, NodePath } from "@effect/platform-node"
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/unstable/http";
 import * as S from "./api-schemas";
-import { Api, BadRequestError } from "./api";
+import { Api, BadRequestError, InternalError } from "./api";
+import { listDirectories } from "./directory-completion";
 import { Git } from "./git";
 import { ServerConfig, type ServerOptions } from "./config";
 import { errMessage } from "./error-message";
@@ -34,6 +35,10 @@ export const ApiHandlers = HttpApiBuilder.group(Api, "api", Effect.fn(function*(
       startedAt: config.startedAt
     }))
     .handle("listProjects", () => Effect.map(registry.projects, (projects) => ({ projects })))
+    .handle("listDirectories", ({ query }) => Effect.tryPromise({
+      try: () => listDirectories(query.path),
+      catch: (cause) => new InternalError({ error: errMessage(cause) })
+    }))
     .handleRaw("openProject", () => Effect.gen(function*() {
       const { path } = yield* parseBody(S.OpenProjectRequestSchema);
       return yield* registry.open(path);
