@@ -22,7 +22,7 @@ export async function listDirectories(path: string): Promise<ListDirectoriesResp
     const child = join(parent, entry.name);
     const isDirectory = entry.isDirectory() || (entry.isSymbolicLink() &&
       (await stat(child).catch(() => null))?.isDirectory());
-    if (isDirectory) directories.push(child.endsWith(sep) ? child : `${child}${sep}`);
+    if (isDirectory) directories.push(`${child}${sep}`);
   }
 
   directories.sort();
