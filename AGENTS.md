@@ -118,8 +118,10 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   FilePreview displays saved threads above file contents and matching current
   comments inline. Both support carry-forward.
 - The active workspace portals Collapse all and Unified / Split controls into App's
-  header immediately before the theme toggle. Their state stays project-local;
-  inactive, loading, and file-preview workspaces do not render controls there.
+  header immediately before the theme toggle. Collapse state stays project-local;
+  App shares the layout preference across projects and persists it under
+  `diffreview-layout` in localStorage. Inactive, loading, and file-preview
+  workspaces do not render controls there.
   There is no middle metadata bar or workspace metadata fetch.
 - MCP verifies the global `server.json` descriptor against `/api/server`, then
   registers its invocation working tree. It does not auto-start the server.

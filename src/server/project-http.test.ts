@@ -224,9 +224,13 @@ describe("project-scoped HTTP", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       const text = frames.join("");
+      expect(text).toContain("event: ping\ndata: {}\n\n");
       expect(text).toContain("event: projects");
+      const payloads = text.split("\n\n")
+        .filter((frame) => !frame.startsWith("event: ping\n"))
+        .flatMap((frame) => frame.split("\n").filter((line) => line.startsWith("data: ")))
+        .map((line) => Schema.decodeUnknownSync(Schema.fromJsonString(S.SseEventSchema))(line.slice(6)));
       for (const project of projects) {
-        const payloads = text.split("\n").filter((line) => line.startsWith("data: ")).map((line) => Schema.decodeUnknownSync(Schema.fromJsonString(S.SseEventSchema))(line.slice(6)));
         expect(payloads).toContainEqual(expect.objectContaining({ type: "comments", projectId: project.id }));
       }
     } finally {
