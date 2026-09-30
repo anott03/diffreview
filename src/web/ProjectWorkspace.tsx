@@ -22,9 +22,11 @@ interface ProjectWorkspaceProps {
   revision: number;
   connectionVersion: number;
   toolbarContainer: HTMLDivElement | null;
+  layout: Layout;
+  onLayoutChange: (layout: Layout) => void;
 }
 
-export function ProjectWorkspace({ projectId, active, revision, connectionVersion, toolbarContainer }: ProjectWorkspaceProps) {
+export function ProjectWorkspace({ projectId, active, revision, connectionVersion, toolbarContainer, layout, onLayoutChange }: ProjectWorkspaceProps) {
   const api = useMemo(() => createProjectApi(projectId), [projectId]);
   const toasts = useKumoToastManager();
   const toastsRef = useRef(toasts);
@@ -50,7 +52,6 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
       return next;
     });
   };
-  const [layout, setLayout] = useState<Layout>("unified");
   const [commentStatus, setCommentStatus] = useState<CommentStatus | "all">("open");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [fileMode, setFileMode] = useState<"changed" | "all" | "history">("changed");
@@ -262,7 +263,7 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
             ]}
             value={layout}
             onValueChange={(value) => {
-              if (value === "unified" || value === "split") setLayout(value);
+              if (value === "unified" || value === "split") onLayoutChange(value);
             }}
           />
         </div>,

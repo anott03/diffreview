@@ -7,6 +7,7 @@ import { globalApi, useServerEvents } from "./api";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { ThemeToggle } from "./components/ThemeToggle";
+import type { Layout } from "./components/DiffView";
 import { activateProject, closeProject, projectFromPath, projectUrl, reconcileProjectTabs, restoreProjectTabs } from "./project-tabs";
 
 const TABS_STORAGE_KEY = "diffreview-project-tabs";
@@ -43,6 +44,7 @@ export function App() {
   const [revisions, setRevisions] = useState<Record<string, number>>({});
   const [connectionVersion, setConnectionVersion] = useState(0);
   const [connection, setConnection] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [layout, setLayout] = useState<Layout>(() => readStorage("diffreview-layout") === "split" ? "split" : "unified");
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const saved = readStorage("diffreview-sidebar");
@@ -93,6 +95,7 @@ export function App() {
   }, []);
 
   useEffect(() => saveStorage(TABS_STORAGE_KEY, JSON.stringify(tabs)), [tabs]);
+  useEffect(() => saveStorage("diffreview-layout", layout), [layout]);
   useEffect(() => saveStorage("diffreview-sidebar", String(sidebarOpen)), [sidebarOpen]);
   useEffect(() => saveStorage("diffreview-sidebar-width", String(sidebarWidth)), [sidebarWidth]);
 
@@ -223,7 +226,7 @@ export function App() {
           </div>
           {tabs.ids.map((id) => (
             <div key={id} id={`project-panel-${id}`} role="tabpanel" aria-labelledby={`project-tab-${id}`} tabIndex={0} hidden={tabs.activeId !== id} inert={tabs.activeId !== id} className={tabs.activeId === id ? "h-full min-w-0 outline-none" : "hidden"}>
-              <ProjectWorkspace projectId={id} active={tabs.activeId === id} revision={revisions[id] ?? 0} connectionVersion={connectionVersion} toolbarContainer={toolbarContainer} />
+              <ProjectWorkspace projectId={id} active={tabs.activeId === id} revision={revisions[id] ?? 0} connectionVersion={connectionVersion} toolbarContainer={toolbarContainer} layout={layout} onLayoutChange={setLayout} />
             </div>
           ))}
         </div>
