@@ -140,7 +140,7 @@ export const ListProjectsResponseSchema = Schema.Struct({
 
 export const OpenProjectRequestSchema = Schema.Struct({ path: Schema.NonEmptyString });
 
-export const DirectoryPathSchema = bounded(0, 4096);
+export const DirectoryPathSchema = bounded(1, 4096);
 
 export const ListDirectoriesResponseSchema = Schema.Struct({
   directories: ArrayOf(Schema.String)
