@@ -40,7 +40,7 @@ export function CommitFileView({ file, layout, collapsed, onToggleCollapse }: Co
     onDraftBodyChange: noop,
     onStartComment: noop,
     onCancelComment: noop,
-    onSubmitComment: async () => {},
+    onSubmitComment: async () => false,
     onResolve: noop,
     onReopen: noop,
     onDelete: noop,

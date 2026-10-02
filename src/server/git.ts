@@ -3,19 +3,17 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { lstat, readFile, readlink, realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { CommitSummary, DiffFile, Meta } from "../shared/types";
 import { buildUntrackedBinaryFile, buildUntrackedFile, parseGitDiff } from "./diff";
-import { normalizeTextLines } from "./text-lines";
+import { readWorkingTreeFile } from "./worktree-files";
 
 const execFileAsync = promisify(execFile);
 
 const GIT_BUFFER_BYTES = 64 * 1024 * 1024;
-const MAX_UNTRACKED_BYTES = 1024 * 1024; // 1MB — larger untracked files shown as "binary"
-const BINARY_SNIFF_BYTES = 8000; // git's own heuristic window
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -168,50 +166,17 @@ export class Git extends Context.Service<Git, {
         return out.split("\0").filter(Boolean);
       });
 
-      function isBinaryBuffer(buf: Buffer): boolean {
-        const len = Math.min(buf.length, BINARY_SNIFF_BYTES);
-        for (let i = 0; i < len; i++) {
-          if (buf[i] === 0) return true;
-        }
-        return false;
-      }
-
       const readUntrackedFile = (
         root: string,
         path: string
       ): Effect.Effect<DiffFile | null> =>
         Effect.gen(function*() {
-          const abs = join(root, path);
-          // A `null` failure means "vanished between listing and reading" —
-          // the caller skips it.
-          const st = yield* Effect.tryPromise({
-            try: () => lstat(abs),
-            // A failed stat means "vanished between listing and reading" —
-            // surfaced as a null result for the caller to skip.
-            catch: (cause) => cause
-          }).pipe(Effect.catch(() => Effect.succeed(null)));
-          if (st === null) return null;
-          // Untracked symlinks are shown git-faithfully: the blob content is
-          // the link target path — never the target's contents (which could
-          // point outside the repository).
-          if (st.isSymbolicLink()) {
-            const target = yield* Effect.tryPromise({
-              try: () => readlink(abs, "utf8"),
-              catch: (cause) => cause
-            }).pipe(Effect.catch(() => Effect.succeed(null)));
-            if (target === null) return null;
-            return buildUntrackedFile(path, target);
-          }
-          if (!st.isFile()) return null;
-          if (st.size > MAX_UNTRACKED_BYTES) return buildUntrackedBinaryFile(path);
-          const buf = yield* Effect.tryPromise({
-            try: () => readFile(abs),
-            catch: (cause) => cause
-          }).pipe(Effect.catch(() => Effect.succeed(null)));
-          if (buf === null) return null;
-          return isBinaryBuffer(buf)
-            ? buildUntrackedBinaryFile(path)
-            : buildUntrackedFile(path, normalizeTextLines(buf.toString("utf8")));
+          const file = yield* Effect.try(() => readWorkingTreeFile(root, path, "git")).pipe(
+            Effect.catch(() => Effect.succeed(null))
+          );
+          if (file === null || file.kind === "unsupported") return null;
+          if (file.kind === "binary" || file.kind === "too-large") return buildUntrackedBinaryFile(path);
+          return file.content === null ? null : buildUntrackedFile(path, file.content);
         });
 
       const readUntrackedFiles = Effect.fn("Git.readUntrackedFiles")(function*(

@@ -33,6 +33,10 @@ agents can read and mark as addressed through MCP.
 
 Requires Node 24+, Git, and pnpm.
 
+On Linux, secure working-tree reads require mounted, accessible `/proc/self/fd`.
+If unavailable, reads fail closed: untracked files may be omitted from diffs and
+file previews return not found.
+
 ```bash
 git clone https://github.com/anott03/diffreview diffreview
 cd diffreview

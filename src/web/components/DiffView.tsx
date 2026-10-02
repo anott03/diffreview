@@ -33,7 +33,7 @@ interface DiffViewProps extends CommentDraftProps {
   comments: Comment[];
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onSubmitComment: (input: CreateCommentRequest) => Promise<void>;
+  onSubmitComment: (input: CreateCommentRequest) => Promise<boolean>;
   onCarryForward: (id: string) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
@@ -127,14 +127,16 @@ export function DiffView({
   }, [active]);
 
   const submit = async (body: string) => {
-    if (!editing) return;
-    await onSubmitComment({ file: path, ...editing, body });
-    onDraftChange(null);
+    if (!editing) return false;
+    const submittedDraft = editing;
+    const saved = await onSubmitComment({ file: path, ...submittedDraft, reviewId, body });
+    if (saved) onDraftChange(null, submittedDraft);
+    return saved;
   };
 
   const draftVisible = editing !== null && displayed.file.hunks.some((hunk) => hunk.lines.some((line) =>
     (editing.side === "old" ? line.oldLine : line.newLine) === editing.line && line.content === editing.lineText));
-  const changeDraftBody = (body: string) => { if (editing) onDraftChange({ ...editing, body }); };
+  const changeDraftBody = (body: string) => { if (editing) onDraftChange({ ...editing, body }, editing); };
   const status = STATUS_BADGE[file.status];
   const tableProps = {
     file: displayed.file,
@@ -165,7 +167,7 @@ export function DiffView({
     editing: draftVisible ? editing : null,
     onDraftBodyChange: changeDraftBody,
     onStartComment: (anchor: EditingAnchor) => { if (!editing) onDraftChange({ ...anchor, body: "" }); },
-    onCancelComment: () => onDraftChange(null),
+    onCancelComment: () => { if (editing) onDraftChange(null, editing); },
     onSubmitComment: submit,
     onResolve,
     onReopen,
@@ -209,7 +211,7 @@ export function DiffView({
               <p className="text-kumo-subtle">Draft on {editing.side}-side line {editing.line}</p>
               <pre className="whitespace-pre-wrap break-all">{editing.lineText || "\u200b"}</pre>
             </div>
-            <CommentEditor body={editing.body} onBodyChange={changeDraftBody} onSubmit={submit} onCancel={() => onDraftChange(null)} />
+            <CommentEditor body={editing.body} onBodyChange={changeDraftBody} onSubmit={submit} onCancel={() => onDraftChange(null, editing)} />
           </section>
         )}
         {loadingContext && <p role="status" className="px-4 py-2 text-sm text-kumo-subtle">Loading unchanged code…</p>}

@@ -28,7 +28,7 @@ interface DiffTableProps {
   onDraftBodyChange: (body: string) => void;
   onStartComment: (anchor: EditingAnchor) => void;
   onCancelComment: () => void;
-  onSubmitComment: (body: string) => Promise<void>;
+  onSubmitComment: (body: string) => Promise<boolean>;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   onDelete: (id: string) => void;
