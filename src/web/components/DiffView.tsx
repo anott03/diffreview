@@ -33,7 +33,7 @@ interface DiffViewProps extends CommentDraftProps {
   comments: Comment[];
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onSubmitComment: (input: CreateCommentRequest) => Promise<void>;
+  onSubmitComment: (input: CreateCommentRequest) => Promise<boolean>;
   onCarryForward: (id: string) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
@@ -127,10 +127,11 @@ export function DiffView({
   }, [active]);
 
   const submit = async (body: string) => {
-    if (!editing) return;
+    if (!editing) return false;
     const submittedDraft = editing;
-    await onSubmitComment({ file: path, ...submittedDraft, reviewId, body });
-    onDraftChange(null, submittedDraft);
+    const saved = await onSubmitComment({ file: path, ...submittedDraft, reviewId, body });
+    if (saved) onDraftChange(null, submittedDraft);
+    return saved;
   };
 
   const draftVisible = editing !== null && displayed.file.hunks.some((hunk) => hunk.lines.some((line) =>

@@ -1,6 +1,6 @@
 import { Button } from "@cloudflare/kumo/components/button";
 import { useState } from "react";
-import { commentDraftKey, type CommentDraft, type RetainedCommentDraft } from "../comment-draft";
+import { commentDraftKey, retainedDraftEditingKey, type CommentDraft, type RetainedCommentDraft } from "../comment-draft";
 import { CommentEditor } from "./CommentEditor";
 
 interface RetainedDraftsProps {
@@ -8,11 +8,13 @@ interface RetainedDraftsProps {
   reviewId: string | null;
   onChange: (entry: RetainedCommentDraft, draft: CommentDraft | null) => void;
   onCarry: (entry: RetainedCommentDraft) => void;
-  onSubmit: (entry: RetainedCommentDraft, body: string) => Promise<void>;
+  onSubmit: (entry: RetainedCommentDraft, body: string) => Promise<boolean>;
 }
 
 export function RetainedDrafts({ drafts, reviewId, onChange, onCarry, onSubmit }: RetainedDraftsProps) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const retainedEditingKey = retainedDraftEditingKey(editingKey, drafts);
+  if (retainedEditingKey !== editingKey) setEditingKey(retainedEditingKey);
   if (drafts.size === 0) return null;
   const historicalCount = [...drafts.values()].filter((entry) => entry.reviewId !== reviewId).length;
 

@@ -15,7 +15,7 @@ import { FileList } from "./components/FileList";
 import { FilePreview } from "./components/FilePreview";
 import { RetainedDrafts } from "./components/RetainedDrafts";
 import { filterComments } from "./comment-filter";
-import { commentDraftKey, type CommentDraft, type RetainedCommentDraft } from "./comment-draft";
+import { commentDraftKey, submitCommentOnce, updateCommentDraft, type CommentDraft, type RetainedCommentDraft } from "./comment-draft";
 
 interface ProjectWorkspaceProps {
   projectId: string;
@@ -48,16 +48,7 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
   const [drafts, setDrafts] = useState<Map<string, RetainedCommentDraft>>(new Map());
   const changeDraft = (draftReviewId: string | null, file: string, draft: CommentDraft | null, expectedDraft?: CommentDraft) => {
     if (!draftReviewId) return;
-    const key = commentDraftKey(draftReviewId, file);
-    setDrafts((previous) => {
-      const existing = previous.get(key);
-      if (expectedDraft && existing?.draft !== expectedDraft) return previous;
-      if (!expectedDraft && existing) return previous;
-      const next = new Map(previous);
-      if (draft) next.set(key, { reviewId: draftReviewId, file, draft });
-      else next.delete(key);
-      return next;
-    });
+    setDrafts((previous) => updateCommentDraft(previous, draftReviewId, file, draft, expectedDraft));
   };
   const carryDraft = (entry: RetainedCommentDraft) => {
     if (!reviewId || entry.reviewId === reviewId) return;
@@ -141,15 +132,14 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
     try {
       const request = { ...input };
       if (!request.reviewId && reviewId) request.reviewId = reviewId;
-      const key = commentDraftKey(request.reviewId ?? null, request.file);
-      if (pendingSaves.current.has(key)) throw new Error("A comment for this file is still saving. Wait before submitting again.");
-      pendingSaves.current.add(key);
-      try {
-        await api.createComment(request);
+      return await submitCommentOnce(pendingSaves.current, request, async (comment) => {
+        await api.createComment(comment);
         await refresh();
-      } finally {
-        pendingSaves.current.delete(key);
-      }
+      }, () => notify({
+        variant: "info",
+        title: "Comment still saving",
+        description: "Wait for the current save to finish before submitting again. Your draft has been kept.",
+      }));
     } catch (err) {
       notify({ variant: "error", title: "Failed to save comment", description: String(err) });
       throw err;
@@ -302,8 +292,9 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
         onChange={(entry, draft) => changeDraft(entry.reviewId, entry.file, draft, entry.draft)}
         onCarry={carryDraft}
         onSubmit={async (entry, body) => {
-          await submitComment({ ...entry.draft, file: entry.file, reviewId: entry.reviewId, body });
-          changeDraft(entry.reviewId, entry.file, null, entry.draft);
+          const saved = await submitComment({ ...entry.draft, file: entry.file, reviewId: entry.reviewId, body });
+          if (saved) changeDraft(entry.reviewId, entry.file, null, entry.draft);
+          return saved;
         }}
       />
       <div className="relative flex min-h-0 flex-1">

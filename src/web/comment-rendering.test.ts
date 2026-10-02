@@ -32,7 +32,7 @@ describe("comments and drafts outside changed lines", () => {
       ...actions, file, commentsByAnchor: new Map([["old:1", [comment]]]),
       editing: { side: "old", line: 1, lineText: "unchanged", body: "Keep this draft" },
       onDraftBodyChange: () => {}, onStartComment: () => {}, onCancelComment: () => {},
-      onSubmitComment: async () => {},
+      onSubmitComment: async () => true,
     }));
     expect(html).toContain("Review the unchanged old side");
     expect(html).toContain("Keep this draft");
@@ -41,7 +41,7 @@ describe("comments and drafts outside changed lines", () => {
 
   it.each(["new", "old"] as const)("retains %s-side draft text through preview, hidden context and visible diff renders", (side) => {
     const draft: CommentDraft = { side, line: 1, lineText: "unchanged", body: "Keep this draft across file changes" };
-    const common = { ...actions, draft, onDraftChange: () => {}, comments: [], onSubmitComment: async () => {} };
+    const common = { ...actions, draft, onDraftChange: () => {}, comments: [], onSubmitComment: async () => true };
     const preview = renderToStaticMarkup(createElement(FilePreview, {
       ...common, path: "file.txt", active: true, revision: 0, connectionVersion: 0, loadFile,
     }));
@@ -61,7 +61,7 @@ describe("comments and drafts outside changed lines", () => {
     const html = renderToStaticMarkup(createElement(DiffView, {
       ...actions, file, workspaceActive: true, revision: 0, connectionVersion: 0,
       loadContext: loadFile, reviewId: "review", layout: "unified", collapsed: false,
-      onToggleCollapse: () => {}, onSubmitComment: async () => {}, draft: null, onDraftChange: () => {},
+      onToggleCollapse: () => {}, onSubmitComment: async () => true, draft: null, onDraftChange: () => {},
       comments: [{ ...comment, line: 20, body: "Hidden context comment" }],
     }));
     expect(html).toContain("Hidden context comment");

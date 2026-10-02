@@ -98,8 +98,11 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   still open their diff. Reads reject traversal and symlink parents, return symlink
   targets as text rather than following them, and cap contents at 1 MiB.
   Untracked diff reads share the bounded descriptor reader, with Git-compatible
-  binary detection and decoding. Linux verifies descriptor paths through /proc
-  and pins symlink reads to a parent descriptor. macOS remains best-effort:
+  binary detection and decoding. Linux verifies descriptor paths through
+  `/proc/self/fd` and pins symlink reads to a parent descriptor. This requires
+  `/proc/self/fd` to be mounted and accessible to the server. If unavailable,
+  secure reads fail closed: untracked files may be omitted from diffs and file
+  previews return not found. macOS remains best-effort:
   path/inode rechecks cannot fully prevent concurrent parent-symlink swaps.
   The preview displays at most 10,000 lines. Current matching new-side comments appear inline;
   historical, outdated and old-side comments retain saved context above the file.

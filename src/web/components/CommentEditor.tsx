@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 interface CommentEditorProps {
   body: string;
   onBodyChange: (body: string) => void;
-  onSubmit: (body: string) => Promise<void>;
+  onSubmit: (body: string) => Promise<boolean>;
   onCancel: () => void;
   cancelLabel?: string;
 }

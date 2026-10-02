@@ -128,7 +128,7 @@ describe("Effect HTTP server (wire contract)", () => {
     // create → 201, author user, status open
     const created = await handler(new Request(`${projectUrl}/comments`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { host: "localhost", origin: "http://localhost", "sec-fetch-site": "same-origin", "content-type": "application/json" },
       body: JSON.stringify({ file: "a.txt", side: "old", line: 2, lineText: "two", body: "note this" })
     }));
     expect(created.status).toBe(201);
@@ -157,14 +157,16 @@ describe("Effect HTTP server (wire contract)", () => {
     // patch → 200 + updated fields
     const patched = await handler(new Request(`${projectUrl}/comments/${comment.id}`, {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: { host: "localhost", origin: "http://localhost", "sec-fetch-site": "same-origin", "content-type": "application/json" },
       body: JSON.stringify({ status: "addressed", note: "done" })
     }));
     expect(patched.status).toBe(200);
     expect(await json(patched, S.CommentSchema)).toMatchObject({ status: "addressed", note: "done" });
 
     // delete → 204, then 404
-    const deleted = await handler(new Request(`${projectUrl}/comments/${comment.id}`, { method: "DELETE" }));
+    const deleted = await handler(new Request(`${projectUrl}/comments/${comment.id}`, {
+      method: "DELETE", headers: { host: "localhost", origin: "http://localhost", "sec-fetch-site": "same-origin" }
+    }));
     expect(deleted.status).toBe(204);
     const gone = await handler(new Request(`${projectUrl}/comments/${comment.id}`, { method: "DELETE" }));
     expect(gone.status).toBe(404);
