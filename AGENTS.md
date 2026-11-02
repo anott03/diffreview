@@ -108,8 +108,13 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   historical, outdated and old-side comments retain saved context above the file.
   Browser diffs and previews use `@pierre/diffs@1.6.2` React `FileDiff` / `File`.
   `web/pierre-diff.ts` adapts server hunks directly to Pierre metadata, preserving
-  line identities without running another diff algorithm. Commit diffs receive
-  partial metadata without loaders, gutter utilities, annotations, or editors.
+  line identities without running another diff algorithm. Versioned SHA-256 cache
+  keys cover paths, hunk structure/line positions/text, partial/full state, and both
+  complete contents when loaded. Revision/reconnection IDs are not highlight-cache
+  inputs. Before native hydration, the loader binds Pierre's `:hydrated` namespace
+  to the accepted full-content identity, never just the partial patch's identity.
+  Commit diffs receive partial metadata without loaders, gutter utilities,
+  annotations, or editors.
   `main.tsx` owns one worker pool, capped at three workers. Pierre handles syntax
   highlighting and word-level inline changes, using github-light/github-dark.
   `use-color-mode.ts` subscribes to the root `data-mode` attribute.
@@ -120,7 +125,11 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   enforces a 10,000-line expansion limit. Full metadata still uses the original
   hunks. A refresh/reconnection invalidates loaded context even if hunks are unchanged;
   expansion must be requested again. Loads abort on deactivation, collapse, and
-  source changes. Hidden comments remain accessible with saved context.
+  source changes. DiffView keys its review renderer by source/review/revision and
+  reconnection generation. The loader publishes validated gap lines synchronously
+  before returning contents to Pierre; post-render callbacks use that exact accepted
+  snapshot and ignore retired renderers. Rendered gap membership is a numeric set,
+  scoped to the accepted snapshot. Hidden comments remain accessible with saved context.
   Pierre annotations stay in light DOM slots, so Kumo/Tailwind styles and React
   focus/events work without injecting the application stylesheet into Shadow DOM.
   `components/pierre-options.ts` owns the small internal CSS/token overrides.

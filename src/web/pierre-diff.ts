@@ -1,3 +1,5 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import type { ChangeContent, ContextContent, FileDiffMetadata, Hunk } from "@pierre/diffs";
 import type { CommentSide, DiffFile, DiffHunk, DiffLine } from "../shared/types";
 import { textLines } from "./diff-context";
@@ -18,6 +20,18 @@ const CHANGE_TYPES = {
   deleted: "deleted",
   modified: "change",
 } as const;
+
+function diffCacheKey(file: DiffFile, complete: CompleteDiffContent | null): string {
+  const input = JSON.stringify([
+    file.oldPath, file.newPath, file.status, file.isBinary,
+    file.hunks.map((hunk) => [
+      hunk.header, hunk.oldStart, hunk.newStart,
+      hunk.lines.map((line) => [line.type, line.oldLine ?? null, line.newLine ?? null, line.content]),
+    ]),
+    complete ? [complete.baseContent, complete.content] : null,
+  ]);
+  return `diffreview:v1:${complete ? "full" : "partial"}:${bytesToHex(sha256(utf8ToBytes(input)))}`;
+}
 
 function sideStartBoundary(start: number, count: number): number {
   return start - (count === 0 ? 0 : 1);
@@ -142,7 +156,7 @@ export function toFileDiffMetadata(file: DiffFile, complete: CompleteDiffContent
     additionLines,
     deletionCharacterCount: deletionLines.reduce((total, line) => total + line.length, 0),
     additionCharacterCount: additionLines.reduce((total, line) => total + line.length, 0),
-    cacheKey: `diffreview:${crypto.randomUUID()}`,
+    cacheKey: diffCacheKey(file, complete),
   };
   if (file.status === "renamed" && file.oldPath) metadata.prevName = file.oldPath;
   return metadata;

@@ -1,3 +1,4 @@
+import { hydratePartialDiff } from "@pierre/diffs";
 import { describe, expect, it } from "vitest";
 import { parseGitDiff } from "../server/diff";
 import type { DiffFile } from "../shared/types";
@@ -56,6 +57,16 @@ describe("expandable diff context", () => {
       { id: 2, count: null, expanded: false },
     ]);
     expect(contextLines(result.file)).toHaveLength(4);
+    const key = toFileDiffMetadata(file, null).cacheKey;
+    expect(toFileDiffMetadata(structuredClone(file), null).cacheKey).toBe(key);
+    expect(toFileDiffMetadata({ ...file, newPath: "different.txt" }, null).cacheKey).not.toBe(key);
+    expect(toFileDiffMetadata({ ...file, hunks: file.hunks.map((hunk) => ({
+      ...hunk, oldStart: hunk.oldStart + 1,
+      lines: hunk.lines.map((line) => ({ ...line, oldLine: line.oldLine === undefined ? undefined : line.oldLine + 1 })),
+    })) }, null).cacheKey).not.toBe(key);
+    expect(toFileDiffMetadata({ ...file, hunks: file.hunks.map((hunk) => ({
+      ...hunk, lines: hunk.lines.map((line) => ({ ...line, content: line.content.replace("replacement", "replacemenT") })),
+    })) }, null).cacheKey).not.toBe(key);
     const rendered = pierreLines(file, null);
     for (const [side, lines] of [["oldLine", rendered.old], ["newLine", rendered.fresh]] as const) {
       expect(lines).toEqual(file.hunks.flatMap((hunk) => hunk.lines.flatMap((line) =>
@@ -80,7 +91,27 @@ describe("expandable diff context", () => {
     const lines = result.file.hunks.flatMap((hunk) => hunk.lines);
     expect(lines.filter((line) => line.newLine !== undefined).map((line) => line.content)).toEqual(textLines(current));
     expect(lines.filter((line) => line.oldLine !== undefined).map((line) => line.content)).toEqual(original);
-    const rendered = pierreLines(file, { content: current, baseContent: original.join("\n") });
+    const complete = { content: current, baseContent: original.join("\n") };
+    const full = toFileDiffMetadata(file, complete);
+    expect(toFileDiffMetadata(structuredClone(file), { ...complete }).cacheKey).toBe(full.cacheKey);
+    expect(full.cacheKey).not.toBe(toFileDiffMetadata(file, null).cacheKey);
+    const differentBase = { ...complete, baseContent: complete.baseContent.replace("line 10", "line 1x") };
+    const differentNew = { ...complete, content: complete.content.replace("line 10", "line 1x") };
+    expect(toFileDiffMetadata(file, differentBase).cacheKey).not.toBe(full.cacheKey);
+    expect(toFileDiffMetadata(file, differentNew).cacheKey).not.toBe(full.cacheKey);
+    const hydratedKeys = [complete, differentBase, differentNew].map((contents) => {
+      const partial = toFileDiffMetadata(file, null);
+      const metadata = toFileDiffMetadata(file, contents);
+      partial.cacheKey = `${metadata.cacheKey}:hydrating`;
+      return hydratePartialDiff("merge", partial, {
+        oldFile: { name: "file.txt", contents: contents.baseContent },
+        newFile: { name: "file.txt", contents: contents.content },
+      }).cacheKey;
+    });
+    expect(new Set(hydratedKeys).size).toBe(3);
+    expect(hydratedKeys).not.toContain(full.cacheKey);
+    expect(hydratedKeys).not.toContain(toFileDiffMetadata(file, null).cacheKey);
+    const rendered = pierreLines(file, complete);
     expect(rendered.old).toEqual(original.map((text, index) => ({ line: index + 1, text })));
     expect(rendered.fresh).toEqual(textLines(current).map((text, index) => ({ line: index + 1, text })));
   });

@@ -1,11 +1,11 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Collapsible } from "@cloudflare/kumo/components/collapsible";
-import type { DiffLineAnnotation, FileDiffOptions } from "@pierre/diffs/react";
-import { FileDiff, useStableCallback } from "@pierre/diffs/react";
+import type { DiffLineAnnotation, FileDiffMetadata, FileDiffOptions } from "@pierre/diffs/react";
+import { FileDiff } from "@pierre/diffs/react";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Comment, CreateCommentRequest, DiffFile, FileContent } from "../../shared/types";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Comment, CreateCommentRequest, DiffFile, DiffLine, FileContent } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
 import type { CommentDraftProps } from "../comment-draft";
 import { diffWithContext, validateDiffContent } from "../diff-context";
@@ -27,10 +27,17 @@ export const STATUS_BADGE = {
 } satisfies Record<DiffFile["status"], { variant: "success" | "error" | "warning" | "info"; label: string }>;
 
 type LoadDiffFiles = NonNullable<FileDiffOptions<string, undefined>["loadDiffFiles"]>;
+type PostRender = NonNullable<FileDiffOptions<string, undefined>["onPostRender"]>;
+type DiffRenderer = Parameters<PostRender>[1];
 
 interface LoadedContext extends CompleteDiffContent {
-  signature: string;
-  reviewId: string;
+  metadata: FileDiffMetadata;
+  gapLines: DiffLine[];
+}
+
+interface RenderedContext {
+  context: LoadedContext;
+  lines: Set<number>;
 }
 
 interface DiffViewProps extends CommentDraftProps {
@@ -51,11 +58,15 @@ interface DiffViewProps extends CommentDraftProps {
   onDelete: (id: string) => void;
 }
 
-export function DiffView({
+export function DiffView(props: DiffViewProps) {
+  const { file, reviewId, revision, connectionVersion } = props;
+  const generation = useMemo(() => JSON.stringify([file, reviewId, revision, connectionVersion]), [file, reviewId, revision, connectionVersion]);
+  return <ReviewDiff key={generation} {...props} />;
+}
+
+function ReviewDiff({
   file,
   workspaceActive,
-  revision,
-  connectionVersion,
   loadContext,
   reviewId,
   draft: editing,
@@ -72,37 +83,42 @@ export function DiffView({
 }: DiffViewProps) {
   const path = diffFilePath(file);
   const colorMode = useColorMode();
-  const signature = useMemo(() => JSON.stringify([file, reviewId, revision, connectionVersion]), [file, reviewId, revision, connectionVersion]);
   const [context, setContext] = useState<LoadedContext | null>(null);
   const [contextError, setContextError] = useState<string | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
-  const [renderedGapKeys, setRenderedGapKeys] = useState("");
-  const latest = useRef({ signature, reviewId });
-  latest.current = { signature, reviewId };
+  const [renderedContext, setRenderedContext] = useState<RenderedContext | null>(null);
+  const acceptedContext = useRef<LoadedContext | null>(null);
+  const mounted = useRef(true);
+  const available = useRef(false);
+  available.current = workspaceActive && !collapsed;
   const pendingLoad = useRef<AbortController | null>(null);
+  const renderer = useRef<DiffRenderer | null>(null);
+  const retiredRenderers = useRef(new WeakSet<DiffRenderer>());
 
-  useEffect(() => () => pendingLoad.current?.abort(), [signature, reviewId, workspaceActive, collapsed]);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      pendingLoad.current?.abort();
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (!workspaceActive || collapsed) pendingLoad.current?.abort();
+  }, [workspaceActive, collapsed]);
 
-  const complete = context?.signature === signature && context.reviewId === reviewId ? context : null;
-  const fileDiff = useMemo(() => toFileDiffMetadata(file, complete), [file, complete, signature]);
-
-  const gapLines = useMemo(() => {
-    if (!complete) return [];
-    const all = new Set(Array.from({ length: file.hunks.length + 1 }, (_, index) => index));
-    const expanded = diffWithContext(file, complete.content, all);
-    return [...expanded.gaps.keys()].flatMap((index) => expanded.file.hunks[index]!.lines);
-  }, [file, complete]);
+  const partial = useMemo(() => toFileDiffMetadata(file, null), [file]);
+  const fileDiff = context?.metadata ?? partial;
 
   const visible = useMemo(() => {
     const lines = visibleDiffLines(file);
-    const rendered = new Set(renderedGapKeys.split(","));
-    for (const line of gapLines) {
-      if (line.newLine === undefined || line.oldLine === undefined || !rendered.has(String(line.newLine))) continue;
+    if (!context || renderedContext?.context !== context) return lines;
+    for (const line of context.gapLines) {
+      if (line.newLine === undefined || line.oldLine === undefined || !renderedContext.lines.has(line.newLine)) continue;
       lines.set(anchorKey("old", line.oldLine), line.content);
       lines.set(anchorKey("new", line.newLine), line.content);
     }
     return lines;
-  }, [file, gapLines, renderedGapKeys]);
+  }, [file, context, renderedContext]);
 
   const { active, outdated } = useMemo(() => {
     const active: Comment[] = [];
@@ -129,17 +145,17 @@ export function DiffView({
   const lineAnnotations = useMemo(() => {
     const keys = new Set(commentsByAnchor.keys());
     if (draftKey) keys.add(draftKey);
-    return [...keys].sort().map((key): DiffLineAnnotation<string> => {
+    return [...keys].map((key): DiffLineAnnotation<string> => {
       const [side, line] = key.split(":");
       return { side: side === "old" ? "deletions" : "additions", lineNumber: Number(line), metadata: key };
-    });
+    }).sort((left, right) => left.lineNumber - right.lineNumber
+      || (left.side === right.side ? 0 : left.side === "deletions" ? -1 : 1));
   }, [commentsByAnchor, draftKey]);
 
   const commentable = workspaceActive && !collapsed && editing === null;
 
-  const loadDiffFiles = useStableCallback<LoadDiffFiles>(async () => {
-    if (!workspaceActive || collapsed) throw new Error("Activate and expand this file to load unchanged code.");
-    const requested = { signature, reviewId };
+  const loadDiffFiles = useCallback<LoadDiffFiles>(async (requestedDiff) => {
+    if (!mounted.current || !available.current) throw new Error("Activate and expand this file to load unchanged code.");
     pendingLoad.current?.abort();
     const controller = new AbortController();
     pendingLoad.current = controller;
@@ -153,34 +169,55 @@ export function DiffView({
       if (result.reviewId !== reviewId) throw new Error("This review ended. Refresh the diff and try again.");
       if (result.baseContent == null) throw new Error("The base file is unavailable or exceeds the 1 MiB context limit.");
       validateDiffContent(file, result.content, result.baseContent);
-      if (controller.signal.aborted || latest.current.signature !== requested.signature || latest.current.reviewId !== requested.reviewId) {
+      if (!mounted.current || !available.current || controller.signal.aborted || pendingLoad.current !== controller) {
         throw new Error("This file changed while loading. Refresh the diff and try again.");
       }
-      setContext({ ...requested, content: result.content, baseContent: result.baseContent });
+      const contents = { content: result.content, baseContent: result.baseContent };
+      const all = new Set(Array.from({ length: file.hunks.length + 1 }, (_, index) => index));
+      const expanded = diffWithContext(file, contents.content, all);
+      const accepted: LoadedContext = {
+        ...contents,
+        metadata: toFileDiffMetadata(file, contents),
+        gapLines: [...expanded.gaps.keys()].flatMap((index) => expanded.file.hunks[index]!.lines),
+      };
+      // Pierre appends :hydrated to this key. Include both full contents before
+      // hydration so identical partial patches cannot share different full files.
+      requestedDiff.cacheKey = `${accepted.metadata.cacheKey}:hydrating`;
+      acceptedContext.current = accepted;
+      setContext(accepted);
       return {
         oldFile: { name: file.oldPath ?? path, contents: result.baseContent },
         newFile: { name: path, contents: result.content },
       };
     } catch (cause) {
-      if (!controller.signal.aborted) setContextError(String(cause));
+      if (mounted.current && !controller.signal.aborted) setContextError(String(cause));
       throw cause;
     } finally {
       if (pendingLoad.current === controller) {
         pendingLoad.current = null;
-        setLoadingContext(false);
+        if (mounted.current) setLoadingContext(false);
       }
     }
-  });
+  }, [file, reviewId, loadContext, path]);
 
-  const gapLinesRef = useRef(gapLines);
-  gapLinesRef.current = gapLines;
-  const onPostRender = useStableCallback<NonNullable<FileDiffOptions<string, undefined>["onPostRender"]>>((_node, instance, phase) => {
-    if (phase === "unmount") return;
-    const rendered = gapLinesRef.current
-      .flatMap((line) => line.newLine !== undefined && instance.isLineRenderable(line.newLine) ? [line.newLine] : [])
-      .join(",");
-    setRenderedGapKeys((previous) => previous === rendered ? previous : rendered);
-  });
+  const onPostRender = useCallback<PostRender>((_node, instance, phase) => {
+    if (phase === "unmount") {
+      retiredRenderers.current.add(instance);
+      if (renderer.current === instance) renderer.current = null;
+      return;
+    }
+    if (retiredRenderers.current.has(instance)) return;
+    if (phase === "mount") renderer.current = instance;
+    if (!mounted.current || renderer.current !== instance) return;
+    const accepted = acceptedContext.current;
+    if (!accepted || instance.fileDiff?.isPartial !== false) return;
+    const key = instance.fileDiff.cacheKey;
+    if (key !== accepted.metadata.cacheKey && key !== `${accepted.metadata.cacheKey}:hydrating:hydrated`) return;
+    const lines = new Set(accepted.gapLines.flatMap((line) =>
+      line.newLine !== undefined && instance.isLineRenderable(line.newLine) ? [line.newLine] : []));
+    setRenderedContext((previous) => previous?.context === accepted && previous.lines.size === lines.size
+      && [...lines].every((line) => previous.lines.has(line)) ? previous : { context: accepted, lines });
+  }, []);
 
   const options = useMemo(() => ({
     ...diffOptions(layout, colorMode, commentable),
@@ -279,10 +316,10 @@ export function DiffView({
           <div className="px-4 py-6 text-sm text-kumo-subtle">
             Binary file — no textual diff to display.
           </div>
-        ) : file.hunks.length === 0 && (!complete || fileDiff.additionLines.length === 0) && (
+        ) : file.hunks.length === 0 && (!context || fileDiff.additionLines.length === 0) && (
           <div className="flex items-center gap-3 px-4 py-2 font-mono text-xs text-kumo-subtle">
             <span>{file.status === "renamed" ? "Renamed without content changes" : "Empty file"}</span>
-            {!complete && file.oldPath && file.newPath && (
+            {!context && file.oldPath && file.newPath && (
               <Button variant="ghost" size="sm" disabled={!workspaceActive || loadingContext} onClick={() => { void loadDiffFiles(fileDiff).catch(() => {}); }}>
                 Show unchanged code
               </Button>
@@ -293,7 +330,6 @@ export function DiffView({
       {!file.isBinary && fileDiff.hunks.some((hunk) => hunk.hunkContent.length > 0) && (
         <div hidden={collapsed}>
           <FileDiff<string>
-            key={signature}
             fileDiff={fileDiff}
             options={options}
             lineAnnotations={lineAnnotations}
