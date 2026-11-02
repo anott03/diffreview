@@ -1,26 +1,37 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Collapsible } from "@cloudflare/kumo/components/collapsible";
+import type { DiffLineAnnotation, FileDiffOptions } from "@pierre/diffs/react";
+import { FileDiff, useStableCallback } from "@pierre/diffs/react";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Comment, CreateCommentRequest, DiffFile, FileContent } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
 import type { CommentDraftProps } from "../comment-draft";
 import { diffWithContext, validateDiffContent } from "../diff-context";
-import { diffSyntaxSources, type DiffSyntaxContent } from "../syntax-highlighting";
-import { useSyntaxHighlighting } from "../use-syntax-highlighting";
+import { anchorKey, toFileDiffMetadata, visibleDiffLines, type CompleteDiffContent } from "../pierre-diff";
+import { useColorMode } from "../use-color-mode";
+import { AddCommentButton } from "./AddCommentButton";
+import { AnchorThreads } from "./AnchorThreads";
 import { CommentEditor } from "./CommentEditor";
 import { CommentThread } from "./CommentThread";
-import { anchorKey, SplitDiffTable, UnifiedDiffTable, type EditingAnchor } from "./DiffTable";
+import { diffOptions } from "./pierre-options";
 
 export type Layout = "unified" | "split";
 
-const STATUS_BADGE = {
+export const STATUS_BADGE = {
   added: { variant: "success", label: "added" },
   deleted: { variant: "error", label: "deleted" },
   modified: { variant: "warning", label: "modified" },
   renamed: { variant: "info", label: "renamed" },
 } satisfies Record<DiffFile["status"], { variant: "success" | "error" | "warning" | "info"; label: string }>;
+
+type LoadDiffFiles = NonNullable<FileDiffOptions<string, undefined>["loadDiffFiles"]>;
+
+interface LoadedContext extends CompleteDiffContent {
+  signature: string;
+  reviewId: string;
+}
 
 interface DiffViewProps extends CommentDraftProps {
   file: DiffFile;
@@ -60,62 +71,48 @@ export function DiffView({
   onDelete,
 }: DiffViewProps) {
   const path = diffFilePath(file);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [context, setContext] = useState<(DiffSyntaxContent & { signature: string }) | null>(null);
+  const colorMode = useColorMode();
+  const signature = useMemo(() => JSON.stringify([file, reviewId, revision, connectionVersion]), [file, reviewId, revision, connectionVersion]);
+  const [context, setContext] = useState<LoadedContext | null>(null);
   const [contextError, setContextError] = useState<string | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
-  const [retry, setRetry] = useState(0);
-  // Stable across re-renders unless the diff changes; used in effect and memo deps.
-  const signature = useMemo(() => JSON.stringify(file), [file]);
-  const needsContext = expanded.size > 0;
+  const [renderedGapKeys, setRenderedGapKeys] = useState("");
+  const latest = useRef({ signature, reviewId });
+  latest.current = { signature, reviewId };
+  const pendingLoad = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    if (!workspaceActive || collapsed || !needsContext) return;
-    const controller = new AbortController();
-    setLoadingContext(true);
-    setContextError(null);
-    void loadContext(path, reviewId, controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      if (result.kind !== "text" || result.content === null) {
-        throw new Error("Unchanged code is only available for text files up to 1 MiB.");
-      }
-      if (result.reviewId !== reviewId) throw new Error("This review ended. Refresh the diff and try again.");
-      if (result.baseContent == null) throw new Error("The base file is unavailable or exceeds the 1 MiB context limit.");
-      validateDiffContent(file, result.content, result.baseContent);
-      setContext({ signature: JSON.stringify(file), content: result.content, baseContent: result.baseContent });
-    }).catch((cause) => {
-      if (!controller.signal.aborted) setContextError(String(cause));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoadingContext(false);
-    });
-    return () => controller.abort();
-  }, [workspaceActive, collapsed, needsContext, file, signature, path, loadContext, reviewId, revision, connectionVersion, retry]);
+  useEffect(() => () => pendingLoad.current?.abort(), [signature, reviewId, workspaceActive, collapsed]);
 
-  const displayed = useMemo(() => diffWithContext(
-    file, context?.signature === signature ? context.content : null, expanded,
-  ), [file, context, signature, expanded]);
+  const complete = context?.signature === signature && context.reviewId === reviewId ? context : null;
+  const fileDiff = useMemo(() => toFileDiffMetadata(file, complete), [file, complete, signature]);
 
-  const syntaxSources = useMemo(() => diffSyntaxSources(
-    file, context?.signature === signature ? context : null,
-  ), [file, context, signature]);
-  const syntaxLines = useSyntaxHighlighting(syntaxSources, workspaceActive && !collapsed);
+  const gapLines = useMemo(() => {
+    if (!complete) return [];
+    const all = new Set(Array.from({ length: file.hunks.length + 1 }, (_, index) => index));
+    const expanded = diffWithContext(file, complete.content, all);
+    return [...expanded.gaps.keys()].flatMap((index) => expanded.file.hunks[index]!.lines);
+  }, [file, complete]);
+
+  const visible = useMemo(() => {
+    const lines = visibleDiffLines(file);
+    const rendered = new Set(renderedGapKeys.split(","));
+    for (const line of gapLines) {
+      if (line.newLine === undefined || line.oldLine === undefined || !rendered.has(String(line.newLine))) continue;
+      lines.set(anchorKey("old", line.oldLine), line.content);
+      lines.set(anchorKey("new", line.newLine), line.content);
+    }
+    return lines;
+  }, [file, gapLines, renderedGapKeys]);
 
   const { active, outdated } = useMemo(() => {
     const active: Comment[] = [];
     const outdated: Comment[] = [];
-    const visible = new Map<string, string>();
-    for (const hunk of displayed.file.hunks) {
-      for (const line of hunk.lines) {
-        if (line.oldLine !== undefined) visible.set(anchorKey("old", line.oldLine), line.content);
-        if (line.newLine !== undefined) visible.set(anchorKey("new", line.newLine), line.content);
-      }
-    }
     for (const comment of comments) {
       const hidden = visible.get(anchorKey(comment.side, comment.line)) !== comment.lineText;
       (comment.historical || comment.outdated || hidden ? outdated : active).push(comment);
     }
     return { active, outdated };
-  }, [comments, displayed]);
+  }, [comments, visible]);
 
   const commentsByAnchor = useMemo(() => {
     const map = new Map<string, Comment[]>();
@@ -126,6 +123,72 @@ export function DiffView({
     return map;
   }, [active]);
 
+  const draftKey = editing && visible.get(anchorKey(editing.side, editing.line)) === editing.lineText
+    ? anchorKey(editing.side, editing.line) : null;
+
+  const lineAnnotations = useMemo(() => {
+    const keys = new Set(commentsByAnchor.keys());
+    if (draftKey) keys.add(draftKey);
+    return [...keys].sort().map((key): DiffLineAnnotation<string> => {
+      const [side, line] = key.split(":");
+      return { side: side === "old" ? "deletions" : "additions", lineNumber: Number(line), metadata: key };
+    });
+  }, [commentsByAnchor, draftKey]);
+
+  const commentable = workspaceActive && !collapsed && editing === null;
+
+  const loadDiffFiles = useStableCallback<LoadDiffFiles>(async () => {
+    if (!workspaceActive || collapsed) throw new Error("Activate and expand this file to load unchanged code.");
+    const requested = { signature, reviewId };
+    pendingLoad.current?.abort();
+    const controller = new AbortController();
+    pendingLoad.current = controller;
+    setLoadingContext(true);
+    setContextError(null);
+    try {
+      const result = await loadContext(path, reviewId, controller.signal);
+      if (result.kind !== "text" || result.content === null) {
+        throw new Error("Unchanged code is only available for text files up to 1 MiB.");
+      }
+      if (result.reviewId !== reviewId) throw new Error("This review ended. Refresh the diff and try again.");
+      if (result.baseContent == null) throw new Error("The base file is unavailable or exceeds the 1 MiB context limit.");
+      validateDiffContent(file, result.content, result.baseContent);
+      if (controller.signal.aborted || latest.current.signature !== requested.signature || latest.current.reviewId !== requested.reviewId) {
+        throw new Error("This file changed while loading. Refresh the diff and try again.");
+      }
+      setContext({ ...requested, content: result.content, baseContent: result.baseContent });
+      return {
+        oldFile: { name: file.oldPath ?? path, contents: result.baseContent },
+        newFile: { name: path, contents: result.content },
+      };
+    } catch (cause) {
+      if (!controller.signal.aborted) setContextError(String(cause));
+      throw cause;
+    } finally {
+      if (pendingLoad.current === controller) {
+        pendingLoad.current = null;
+        setLoadingContext(false);
+      }
+    }
+  });
+
+  const gapLinesRef = useRef(gapLines);
+  gapLinesRef.current = gapLines;
+  const onPostRender = useStableCallback<NonNullable<FileDiffOptions<string, undefined>["onPostRender"]>>((_node, instance, phase) => {
+    if (phase === "unmount") return;
+    const rendered = gapLinesRef.current
+      .flatMap((line) => line.newLine !== undefined && instance.isLineRenderable(line.newLine) ? [line.newLine] : [])
+      .join(",");
+    setRenderedGapKeys((previous) => previous === rendered ? previous : rendered);
+  });
+
+  const options = useMemo(() => ({
+    ...diffOptions(layout, colorMode, commentable),
+    collapsed,
+    loadDiffFiles,
+    onPostRender,
+  }) satisfies FileDiffOptions<string, undefined>, [layout, colorMode, commentable, collapsed, loadDiffFiles, onPostRender]);
+
   const submit = async (body: string) => {
     if (!editing) return false;
     const submittedDraft = editing;
@@ -133,46 +196,18 @@ export function DiffView({
     if (saved) onDraftChange(null, submittedDraft);
     return saved;
   };
-
-  const draftVisible = editing !== null && displayed.file.hunks.some((hunk) => hunk.lines.some((line) =>
-    (editing.side === "old" ? line.oldLine : line.newLine) === editing.line && line.content === editing.lineText));
   const changeDraftBody = (body: string) => { if (editing) onDraftChange({ ...editing, body }, editing); };
-  const status = STATUS_BADGE[file.status];
-  const tableProps = {
-    file: displayed.file,
-    syntaxLines,
-    renderHunkHeader: (index: number) => {
-      const gap = displayed.gaps.get(index);
-      if (!gap) return displayed.file.hunks[index]!.header;
-      const containsDraft = editing !== null && displayed.file.hunks[index]!.lines.some((line) =>
-        (editing.side === "old" ? line.oldLine : line.newLine) === editing.line);
-      return (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-expanded={gap.expanded}
-          disabled={loadingContext || containsDraft}
-          onClick={() => setExpanded((previous) => {
-            const next = new Set(previous);
-            if (next.has(gap.id)) next.delete(gap.id);
-            else next.add(gap.id);
-            return next;
-          })}
-        >
-          {gap.expanded ? "Hide" : "Expand"} {gap.count === null ? "remaining" : gap.count} unchanged lines
-        </Button>
-      );
-    },
-    commentsByAnchor,
-    editing: draftVisible ? editing : null,
-    onDraftBodyChange: changeDraftBody,
-    onStartComment: (anchor: EditingAnchor) => { if (!editing) onDraftChange({ ...anchor, body: "" }); },
-    onCancelComment: () => { if (editing) onDraftChange(null, editing); },
-    onSubmitComment: submit,
-    onResolve,
-    onReopen,
-    onDelete,
+  const cancelDraft = () => { if (editing) onDraftChange(null, editing); };
+
+  const startComment = (hovered: { lineNumber: number; side: "deletions" | "additions" } | undefined) => {
+    if (!hovered || editing || !workspaceActive || collapsed) return;
+    const side = hovered.side === "deletions" ? "old" : "new";
+    const lineText = visible.get(anchorKey(side, hovered.lineNumber));
+    if (lineText === undefined) return;
+    onDraftChange({ side, line: hovered.lineNumber, lineText, body: "" });
   };
+
+  const status = STATUS_BADGE[file.status];
 
   return (
     <Collapsible.Root
@@ -205,21 +240,20 @@ export function DiffView({
       </div>
 
       <Collapsible.Panel>
-        {editing && !draftVisible && (
+        {editing && !draftKey && (
           <section aria-label="Comment draft" className="border-b border-kumo-line text-sm">
             <div className="bg-kumo-recessed px-4 py-2">
               <p className="text-kumo-subtle">Draft on {editing.side}-side line {editing.line}</p>
               <pre className="whitespace-pre-wrap break-all">{editing.lineText || "\u200b"}</pre>
             </div>
-            <CommentEditor body={editing.body} onBodyChange={changeDraftBody} onSubmit={submit} onCancel={() => onDraftChange(null, editing)} />
+            <CommentEditor body={editing.body} onBodyChange={changeDraftBody} onSubmit={submit} onCancel={cancelDraft} />
           </section>
         )}
         {loadingContext && <p role="status" className="px-4 py-2 text-sm text-kumo-subtle">Loading unchanged code…</p>}
         {contextError && (
-          <div role="alert" className="flex items-center gap-3 px-4 py-2 text-sm">
-            <span>{contextError}</span>
-            <Button variant="secondary" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry</Button>
-          </div>
+          <p role="alert" className="px-4 py-2 text-sm">
+            {contextError} Expand the hidden lines again to retry.
+          </p>
         )}
         {outdated.length > 0 && (
           <details className="border-b border-kumo-line">
@@ -241,17 +275,46 @@ export function DiffView({
             </div>
           </details>
         )}
-
         {file.isBinary ? (
           <div className="px-4 py-6 text-sm text-kumo-subtle">
             Binary file — no textual diff to display.
           </div>
-        ) : layout === "unified" ? (
-          <UnifiedDiffTable {...tableProps} />
-        ) : (
-          <SplitDiffTable {...tableProps} />
+        ) : file.hunks.length === 0 && (!complete || fileDiff.additionLines.length === 0) && (
+          <div className="flex items-center gap-3 px-4 py-2 font-mono text-xs text-kumo-subtle">
+            <span>{file.status === "renamed" ? "Renamed without content changes" : "Empty file"}</span>
+            {!complete && file.oldPath && file.newPath && (
+              <Button variant="ghost" size="sm" disabled={!workspaceActive || loadingContext} onClick={() => { void loadDiffFiles(fileDiff).catch(() => {}); }}>
+                Show unchanged code
+              </Button>
+            )}
+          </div>
         )}
       </Collapsible.Panel>
+      {!file.isBinary && fileDiff.hunks.some((hunk) => hunk.hunkContent.length > 0) && (
+        <div hidden={collapsed}>
+          <FileDiff<string>
+            key={signature}
+            fileDiff={fileDiff}
+            options={options}
+            lineAnnotations={lineAnnotations}
+            renderAnnotation={(annotation) => (
+              <AnchorThreads
+                comments={commentsByAnchor.get(annotation.metadata) ?? []}
+                draft={annotation.metadata === draftKey ? editing : null}
+                onDraftBodyChange={changeDraftBody}
+                onCancelDraft={cancelDraft}
+                onSubmitDraft={submit}
+                onResolve={onResolve}
+                onReopen={onReopen}
+                onDelete={onDelete}
+              />
+            )}
+            renderGutterUtility={(getHoveredLine) => (
+              <AddCommentButton onClick={() => startComment(getHoveredLine())} />
+            )}
+          />
+        </div>
+      )}
     </Collapsible.Root>
   );
 }

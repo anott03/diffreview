@@ -30,13 +30,13 @@
     "@effect/vitest": "4.0.0-rc.112",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@pierre/diffs": "1.6.2",
     "effect": "4.0.0-rc.112",
     "parse-diff": "^0.12.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "shiki": "^4.4.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
