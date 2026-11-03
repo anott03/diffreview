@@ -32,7 +32,7 @@
           {
             "patterns": [
               {
-                "group": ["node:*", "effect", "effect/*", "@effect/*", "@pierre/*", "react", "react/*", "react-dom", "react-dom/*", "@cloudflare/*"],
+                "regex": "^(node:|(effect|react|react-dom)(/|$)|@(effect|pierre|cloudflare)/)",
                 "message": "src/core must stay runtime-agnostic: no Node, Effect, Pierre, React or Kumo imports."
               },
               {

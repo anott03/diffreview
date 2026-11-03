@@ -13,13 +13,16 @@ export function parseGitDiff(diffText: string): DiffFile[] {
     const oldPath = !raw.from || raw.from === "/dev/null" ? null : raw.from;
     const newPath = !raw.to || raw.to === "/dev/null" ? null : raw.to;
 
-    const status: DiffFile["status"] = raw.new
-      ? "added"
-      : raw.deleted
-        ? "deleted"
-        : oldPath !== null && newPath !== null && oldPath !== newPath
-          ? "renamed"
-          : "modified";
+    let status: DiffFile["status"];
+    if (raw.new) {
+      status = "added";
+    } else if (raw.deleted) {
+      status = "deleted";
+    } else if (oldPath !== null && newPath !== null && oldPath !== newPath) {
+      status = "renamed";
+    } else {
+      status = "modified";
+    }
 
     const hunks: DiffHunk[] = raw.chunks.map((chunk) => ({
       header: chunk.content,
