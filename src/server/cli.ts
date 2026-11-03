@@ -80,7 +80,7 @@ function serve(port: number): void {
       (lock) => Effect.sync(() => lock.release()),
     );
 
-    yield* Effect.gen(function*() {
+    return yield* Effect.gen(function*() {
       yield* Effect.addFinalizer(() => Effect.sync(() => clearServerDescriptor(descriptor.instanceId)));
       yield* Effect.tryPromise({
         try: async () => {
@@ -93,7 +93,7 @@ function serve(port: number): void {
         console.log(`diffreview ${pkg.version}\n\n  Server: ${descriptor.endpoint}\n  PID: ${descriptor.pid}\n  Discovery: ${serverDescriptorPath()}`);
         if (!webRoot) console.log("  UI not built. Run pnpm build, or use the Vite UI at http://localhost:5173.");
       });
-      yield* Effect.never;
+      return yield* Effect.never;
     }).pipe(Effect.provide(serverLayer({
       port,
       intervalMs: 2000,
