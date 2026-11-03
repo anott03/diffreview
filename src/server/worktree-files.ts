@@ -2,7 +2,7 @@ import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, readlin
 import { basename, dirname, isAbsolute, join, win32 } from "node:path";
 import type { FileContent } from "../shared/types";
 import { NotFoundError } from "./api";
-import { normalizeTextLines } from "./text-lines";
+import { normalizeTextLines } from "../core/text-lines";
 
 const MAX_FILE_BYTES = 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8000;

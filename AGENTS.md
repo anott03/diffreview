@@ -87,7 +87,7 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   collapse state and scroll positions. Closing a tab discards only client state.
 - Web API clients are immutable project bindings. Abort obsolete reads and gate
   toasts by active workspace. Never share addressed-comment tracking across projects.
-- The file sidebar uses `web/file-tree.ts` to group canonical paths into a
+- The file sidebar uses `core/file-tree.ts` to group canonical paths into a
   folders-first tree. Folders start expanded; collapsed directory state lives
   in ProjectWorkspace so it survives mode switches and refreshes. The collapsed
   sidebar rail keeps direct file shortcuts.
@@ -120,7 +120,7 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   `use-color-mode.ts` subscribes to the root `data-mode` attribute.
   DiffView's lazy loader reads the same file endpoint with `context=true` and the
   expected `reviewId` before Pierre can expand unchanged code. The response includes
-  bounded `baseContent` and `reviewId` fields. `web/diff-context.ts` reconstructs both
+  bounded `baseContent` and `reviewId` fields. `core/diff-context.ts` reconstructs both
   complete sides, verifies them against the working-tree and base contents, and
   enforces a 10,000-line expansion limit. Full metadata still uses the original
   hunks. A refresh/reconnection invalidates loaded context even if hunks are unchanged;
@@ -196,14 +196,21 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
 
 ```
 src/
-  shared/types.ts   # Cross-process contracts (no runtime deps)
+  core/             # Runtime-agnostic diff domain shared by server, web and tests
+    diff-model.ts   # Dependency-free diff types, diffFilePath, anchor keys, visible lines
+    parse-diff.ts   # parse-diff wrapper: unified diff text -> DiffFile[]
+    diff-context.ts # Full-side reconstruction and validation for context expansion
+    file-tree.ts    # Folders-first tree of canonical paths
+    text-lines.ts   # CRLF normalization
+    test-fixtures/  # Test-only diff fixtures (excluded from core typecheck)
+  shared/types.ts   # Cross-process contracts; re-exports the core diff model
   server/
     cli.ts          # serve/open commands, launcher and foreground runtime
     api.ts          # HttpApi definition (endpoints, error classes, StreamSse)
     api-schemas.ts  # Effect Schema contracts mirroring shared/types.ts
     http.ts         # HttpApiBuilder handlers, static/SSE composition, serverLayer
     git.ts          # Git service (+ standalone getRepoRoot for cli/mcp)
-    diff.ts         # parse-diff wrapper + untracked synthesis + anchor resolution
+    diff.ts         # Untracked synthesis + anchor resolution
     store.ts        # CommentStore service (node:sqlite via sync core fns)
     watcher.ts      # Watcher service (poll fiber + change PubSub + review snapshots)
     server-discovery.ts # Global descriptor, verification, lock, detached startup
@@ -219,7 +226,7 @@ src/
     ProjectWorkspace.tsx # Project-local review UI, reads, mutations and toasts
     project-tabs.ts # Storage restoration and tab navigation helpers
     api.ts          # Global operations, project-bound clients, one SSE hook
-    pierre-diff.ts  # Server-hunk -> Pierre metadata adapter and anchor keys
+    pierre-diff.ts  # Server-hunk -> Pierre metadata adapter
     components/    # DiffView, FilePreview, CommitFileView, AnchorThreads, file lists, comments
   mcp/
     server.ts       # MCP stdio server + 4 tools
@@ -231,8 +238,17 @@ src/
 
 ### Type sharing
 
+- `src/core/` owns the diff model and pure diff helpers. It must not import
+  application code (`server`, `web`, `mcp`, `shared`, `dev`), Node builtins,
+  Effect, Pierre, React or Kumo; `.oxlintrc.json` enforces this.
+  `tsconfig.core.json` typechecks core production sources with ES2022 only (no
+  DOM or Node types) and runs as part of `pnpm typecheck`.
+- `core/diff-model.ts` is dependency-free. `core/parse-diff.ts` is the only core
+  module with a third-party runtime dependency (`parse-diff`). Test fixtures
+  live in `core/test-fixtures/` and are excluded from the core typecheck.
 - `src/shared/types.ts` must stay dependency-free. Never import `effect`,
-  `zod`, or React there.
+  `zod`, or React there. It re-exports the diff model from
+  `core/diff-model.ts`; it must not import `core/parse-diff.ts`.
 - Server-side Effect Schema contracts live in `src/server/api-schemas.ts`;
   they must stay shape-compatible with `shared/types.ts` (asserted by
   `api-schemas.test.ts`).

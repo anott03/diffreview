@@ -8,7 +8,8 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { CommitSummary, DiffFile, Meta } from "../shared/types";
-import { buildUntrackedBinaryFile, buildUntrackedFile, parseGitDiff } from "./diff";
+import { parseGitDiff } from "../core/parse-diff";
+import { buildUntrackedBinaryFile, buildUntrackedFile } from "./diff";
 import { readWorkingTreeFile } from "./worktree-files";
 
 const execFileAsync = promisify(execFile);

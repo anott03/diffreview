@@ -20,7 +20,7 @@
     "build:server": "esbuild src/server/cli.ts src/mcp/server.ts --bundle --platform=node --format=esm --splitting --packages=external --outdir=dist --banner:js='#!/usr/bin/env node'",
     "start": "node dist/server/cli.js serve",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json",
     "test": "vitest run",
     "test:watch": "vitest"
   },

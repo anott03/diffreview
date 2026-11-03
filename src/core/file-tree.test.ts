@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DiffFile } from "../shared/types";
+import type { DiffFile } from "./diff-model";
 import { buildFileTree, buildPathTree } from "./file-tree";
 
 const file = (path: string, overrides: Partial<DiffFile> = {}): DiffFile => ({

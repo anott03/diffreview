@@ -11,50 +11,16 @@
 // Diff model
 // ---------------------------------------------------------------------------
 
-export type DiffLineType = "add" | "del" | "context";
+import type { DiffFile, DiffSide } from "../core/diff-model";
 
-export interface DiffLine {
-  type: DiffLineType;
-  /** Line number in the old file (1-based). Present for "del" and "context" lines. */
-  oldLine?: number;
-  /** Line number in the new file (1-based). Present for "add" and "context" lines. */
-  newLine?: number;
-  /** Line content without the leading +/-/space marker. */
-  content: string;
-}
-
-export interface DiffHunk {
-  /** Raw hunk header, e.g. "@@ -10,6 +10,7 @@ function foo() {". */
-  header: string;
-  oldStart: number;
-  newStart: number;
-  lines: DiffLine[];
-}
-
-export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
-
-export interface DiffFile {
-  /** Path in the old tree (repo-relative). Null for added files. */
-  oldPath: string | null;
-  /** Path in the new tree (repo-relative). Null for deleted files. */
-  newPath: string | null;
-  status: DiffFileStatus;
-  isBinary: boolean;
-  hunks: DiffHunk[];
-  additions: number;
-  deletions: number;
-}
-
-/** Canonical display/anchor path for a diff file. */
-export function diffFilePath(file: DiffFile): string {
-  return file.newPath ?? file.oldPath ?? "";
-}
+export type { DiffFile, DiffFileStatus, DiffHunk, DiffLine, DiffLineType } from "../core/diff-model";
+export { diffFilePath } from "../core/diff-model";
 
 // ---------------------------------------------------------------------------
 // Comment model
 // ---------------------------------------------------------------------------
 
-export type CommentSide = "old" | "new";
+export type CommentSide = DiffSide;
 export type CommentStatus = "open" | "addressed";
 export type CommentAuthor = "user" | "agent";
 
