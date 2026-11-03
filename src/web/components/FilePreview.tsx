@@ -6,12 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { Comment, CreateCommentRequest, FileContent } from "../../shared/types";
 import type { CommentDraftProps } from "../comment-draft";
 import { textLines } from "../../core/diff-context";
-import { useColorMode } from "../use-color-mode";
-import { AddCommentButton } from "./AddCommentButton";
+import { AddCommentButton } from "../../ui/AddCommentButton";
+import { CommentEditor } from "../../ui/CommentEditor";
+import { codeOptions } from "../../ui/pierre-options";
+import { useColorMode } from "../../ui/use-color-mode";
 import { AnchorThreads } from "./AnchorThreads";
-import { CommentEditor } from "./CommentEditor";
 import { CommentThread } from "./CommentThread";
-import { codeOptions } from "./pierre-options";
 
 interface FilePreviewProps extends CommentDraftProps {
   path: string;

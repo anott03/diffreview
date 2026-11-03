@@ -6,8 +6,8 @@ import type { Project } from "../shared/types";
 import { globalApi, useServerEvents } from "./api";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 import { ProjectPicker } from "./components/ProjectPicker";
-import { ThemeToggle } from "./components/ThemeToggle";
-import type { Layout } from "./components/DiffView";
+import type { Layout } from "../ui/DiffFileHeader";
+import { ThemeToggle } from "../ui/ThemeToggle";
 import { activateProject, closeProject, projectFromPath, projectUrl, reconcileProjectTabs, restoreProjectTabs } from "./project-tabs";
 
 const TABS_STORAGE_KEY = "diffreview-project-tabs";

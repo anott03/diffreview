@@ -24,8 +24,7 @@ export function CommentEditor({ body, onBodyChange, onSubmit, onCancel, cancelLa
     try {
       await onSubmit(trimmed);
     } catch {
-      // Parent already surfaced the error (toast); keep the editor open so
-      // the comment isn't lost.
+      // Parent surfaces the error; keep the editor open so the comment isn't lost.
     } finally {
       setSaving(false);
     }

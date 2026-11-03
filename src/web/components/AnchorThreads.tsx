@@ -1,6 +1,6 @@
 import type { Comment } from "../../shared/types";
+import { CommentEditor } from "../../ui/CommentEditor";
 import type { CommentDraft } from "../comment-draft";
-import { CommentEditor } from "./CommentEditor";
 import { CommentThread } from "./CommentThread";
 
 interface AnchorThreadsProps {
