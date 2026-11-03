@@ -1,7 +1,7 @@
 import { Button } from "@cloudflare/kumo/components/button";
 import { useState } from "react";
+import { CommentEditor } from "../../ui/CommentEditor";
 import { commentDraftKey, retainedDraftEditingKey, type CommentDraft, type RetainedCommentDraft } from "../comment-draft";
-import { CommentEditor } from "./CommentEditor";
 
 interface RetainedDraftsProps {
   drafts: Map<string, RetainedCommentDraft>;

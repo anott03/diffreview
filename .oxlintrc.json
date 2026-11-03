@@ -40,8 +40,32 @@
                 "message": "src/core must stay runtime-agnostic: no Node builtin imports."
               },
               {
-                "group": ["**/server/**", "**/web/**", "**/mcp/**", "**/shared/**", "**/dev/**"],
+                "group": ["**/server/**", "**/web/**", "**/mcp/**", "**/shared/**", "**/dev/**", "**/ui/**"],
                 "message": "src/core must not import application code."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/ui/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "*",
+                  "!./**", "!../core", "!../core/**",
+                  "!react", "!react/**", "!react-dom", "!react-dom/**", "!react-markdown", "!remark-gfm", "!vitest",
+                  "!@cloudflare/kumo", "!@cloudflare/kumo/**",
+                  "!@pierre/diffs", "!@pierre/diffs/**",
+                  "!@phosphor-icons/react", "!@phosphor-icons/react/**",
+                  "!@noble/hashes", "!@noble/hashes/**"
+                ],
+                "message": "src/ui may only import src/core, React, Kumo, Pierre and their rendering helpers."
               }
             ]
           }

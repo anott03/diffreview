@@ -185,7 +185,7 @@ The server uses Effect v4 with exactly pinned release-candidate packages.
 - `src/web/App.tsx` owns project navigation and shared preferences. Keyed,
   mounted `ProjectWorkspace` components retain project-local state and drafts.
 - The browser uses `@pierre/diffs@1.6.2` React components for working diffs,
-  read-only commit diffs, and file previews. `src/web/pierre-diff.ts` maps the
+  read-only commit diffs, and file previews. `src/ui/pierre-diff.ts` maps the
   server's hunks to display metadata without recomputing the Git diff. Context
   expansion validates bounded file reads against both sides and the expected review
   before displaying them. Comments and controlled editors use light DOM annotation

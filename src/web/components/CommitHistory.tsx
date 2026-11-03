@@ -4,11 +4,11 @@ import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CommitSummary, GetCommitDiffResponse, ListCommitsResponse } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
+import type { Layout } from "../../ui/DiffFileHeader";
+import { FileList } from "../../ui/FileList";
 import { useNow } from "../use-relative-time";
 import { CommitFileView } from "./CommitFileView";
 import { CommitList, formatCommitDate } from "./CommitList";
-import type { Layout } from "./DiffView";
-import { FileList } from "./FileList";
 
 const COMMIT_PAGE_SIZE = 200;
 const COMMIT_FETCH_SIZE = COMMIT_PAGE_SIZE + 1;
@@ -132,7 +132,6 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
     return {
       path,
       change: { status: file.status, additions: file.additions, deletions: file.deletions },
-      commentCount: 0,
     };
   });
   const historySidebarHeader = (
@@ -162,7 +161,6 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
       ) : (
         <FileList
           title="Commit files"
-          commentLabel="files"
           header={historySidebarHeader}
           notice={diffError ? (
             <div role="alert" className="space-y-2 px-3 py-2 text-sm">
