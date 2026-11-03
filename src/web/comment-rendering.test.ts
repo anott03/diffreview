@@ -5,7 +5,6 @@ import type { Comment, DiffFile, FileContent } from "../shared/types";
 import type { CommentDraft } from "./comment-draft";
 import { DiffView } from "./components/DiffView";
 import { FilePreview } from "./components/FilePreview";
-import { SplitDiffTable, UnifiedDiffTable } from "./components/DiffTable";
 
 const file: DiffFile = {
   oldPath: "file.txt", newPath: "file.txt", status: "modified", isBinary: false,
@@ -27,11 +26,11 @@ const actions = {
 const loadFile = async (): Promise<FileContent> => ({ path: "file.txt", kind: "text", content: "unchanged\nafter\n" });
 
 describe("comments and drafts outside changed lines", () => {
-  it.each([UnifiedDiffTable, SplitDiffTable])("renders old-side context comments and a controlled draft in either layout", (Table) => {
-    const html = renderToStaticMarkup(createElement(Table, {
-      ...actions, file, commentsByAnchor: new Map([["old:1", [comment]]]),
-      editing: { side: "old", line: 1, lineText: "unchanged", body: "Keep this draft" },
-      onDraftBodyChange: () => {}, onStartComment: () => {}, onCancelComment: () => {},
+  it.each(["unified", "split"] as const)("renders old-side context comments and a controlled draft in %s layout", (layout) => {
+    const html = renderToStaticMarkup(createElement(DiffView, {
+      ...actions, file, comments: [comment], layout, workspaceActive: true, revision: 0, connectionVersion: 0,
+      loadContext: loadFile, reviewId: "review", collapsed: false, onToggleCollapse: () => {},
+      draft: { side: "old", line: 1, lineText: "unchanged", body: "Keep this draft" }, onDraftChange: () => {},
       onSubmitComment: async () => true,
     }));
     expect(html).toContain("Review the unchanged old side");
@@ -66,6 +65,6 @@ describe("comments and drafts outside changed lines", () => {
     }));
     expect(html).toContain("Hidden context comment");
     expect(html).toContain("on hidden or outdated code");
-    expect(html).toContain("unchanged lines");
+    expect(html).toContain("<diffs-container");
   });
 });

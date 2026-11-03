@@ -5,9 +5,10 @@ agents can read and mark as addressed through MCP.
 
 ## Features
 
-- Review staged, unstaged, and untracked changes against HEAD in unified or split view.
+- Review staged, unstaged, and untracked changes against HEAD in unified or split view,
+  rendered with [@pierre/diffs](https://diffs.com/) and word-level inline changes.
 - Syntax highlighting in diffs and file previews follows the light or dark theme.
-  Languages load on demand; unsupported file types stay plain text.
+  Languages load on demand through a shared worker pool; unsupported file types stay plain text.
 - Switch the sidebar between Changed files, All files, and Commits. All files includes
   tracked and nonignored untracked files. Changed files open their diff; unchanged files have
   a text preview with inline commenting, limited to 1 MiB and 10,000 displayed lines.
@@ -15,6 +16,8 @@ agents can read and mark as addressed through MCP.
   introduced, in unified or split view.
 - Expand unchanged code before, between, and after diff hunks in either layout, and
   comment on those lines too. Expansion supports text files up to 1 MiB and 10,000 lines.
+  Refreshes invalidate loaded context; expand again to fetch the current contents.
+  Pure renames offer a Show unchanged code button.
 - Open multiple working trees in project tabs, with a picker for recent projects.
 - Keep selections, filters, collapsed files, scroll positions, and editor drafts
   when switching project tabs. Closing a tab discards its local workspace, not its comments.
@@ -181,6 +184,12 @@ The server uses Effect v4 with exactly pinned release-candidate packages.
   refresh on reconnection; inactive web workspaces refresh when activated.
 - `src/web/App.tsx` owns project navigation and shared preferences. Keyed,
   mounted `ProjectWorkspace` components retain project-local state and drafts.
+- The browser uses `@pierre/diffs@1.6.2` React components for working diffs,
+  read-only commit diffs, and file previews. `src/web/pierre-diff.ts` maps the
+  server's hunks to display metadata without recomputing the Git diff. Context
+  expansion validates bounded file reads against both sides and the expected review
+  before displaying them. Comments and controlled editors use light DOM annotation
+  slots so Kumo styling and workspace-owned drafts survive renderer updates.
 - `src/mcp/client.ts` resolves global discovery and constructs immutable
   project-bound HTTP URLs. Only the server writes SQLite.
 - `src/server/server-discovery.ts` coordinates startup, verifies server identity,

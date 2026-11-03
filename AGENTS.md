@@ -106,12 +106,38 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   path/inode rechecks cannot fully prevent concurrent parent-symlink swaps.
   The preview displays at most 10,000 lines. Current matching new-side comments appear inline;
   historical, outdated and old-side comments retain saved context above the file.
-  DiffView lazily reads the same endpoint with `context=true` and the expected
-  `reviewId` to expand unchanged code before, between, and after hunks in both
-  layouts. The response includes bounded `baseContent` and `reviewId` fields.
-  `web/diff-context.ts` reconstructs both complete sides, verifies them against
-  the working-tree and base contents, and enforces a 10,000-line expansion limit.
-  Hidden comments remain accessible with saved context. Text reads and diff lines
+  Browser diffs and previews use `@pierre/diffs@1.6.2` React `FileDiff` / `File`.
+  `web/pierre-diff.ts` adapts server hunks directly to Pierre metadata, preserving
+  line identities without running another diff algorithm. Versioned SHA-256 cache
+  keys cover paths, hunk structure/line positions/text, partial/full state, and both
+  complete contents when loaded. Revision/reconnection IDs are not highlight-cache
+  inputs. Before native hydration, the loader binds Pierre's `:hydrated` namespace
+  to the accepted full-content identity, never just the partial patch's identity.
+  Commit diffs receive partial metadata without loaders, gutter utilities,
+  annotations, or editors.
+  `main.tsx` owns one worker pool, capped at three workers. Pierre handles syntax
+  highlighting and word-level inline changes, using github-light/github-dark.
+  `use-color-mode.ts` subscribes to the root `data-mode` attribute.
+  DiffView's lazy loader reads the same file endpoint with `context=true` and the
+  expected `reviewId` before Pierre can expand unchanged code. The response includes
+  bounded `baseContent` and `reviewId` fields. `web/diff-context.ts` reconstructs both
+  complete sides, verifies them against the working-tree and base contents, and
+  enforces a 10,000-line expansion limit. Full metadata still uses the original
+  hunks. A refresh/reconnection invalidates loaded context even if hunks are unchanged;
+  expansion must be requested again. Loads abort on deactivation, collapse, and
+  source changes. DiffView keys its review renderer by source/review/revision and
+  reconnection generation. The loader publishes validated gap lines synchronously
+  before returning contents to Pierre; post-render callbacks use that exact accepted
+  snapshot and ignore retired renderers. Rendered gap membership is a numeric set,
+  scoped to the accepted snapshot. Hidden comments remain accessible with saved context.
+  Pierre annotations stay in light DOM slots, so Kumo/Tailwind styles and React
+  focus/events work without injecting the application stylesheet into Shadow DOM.
+  `components/pierre-options.ts` owns the small internal CSS/token overrides.
+  `AnchorThreads` shares controlled annotation content between diffs and previews.
+  Only matching, rendered side/line/text anchors get inline annotations; hidden or
+  stale drafts use the saved-text editor above the diff. Keep Pierre mounted across
+  collapse so expansion and annotation state survive. Do not move drafts into its
+  renderers or reintroduce a separate Shiki worker. Text reads and diff lines
   normalize CRLF, while symlink targets remain raw.
   Comment drafts live in ProjectWorkspace keyed by review and path, surviving
   preview/diff transitions and expanded-row reloads. Editors use controlled bodies.
@@ -193,7 +219,8 @@ src/
     ProjectWorkspace.tsx # Project-local review UI, reads, mutations and toasts
     project-tabs.ts # Storage restoration and tab navigation helpers
     api.ts          # Global operations, project-bound clients, one SSE hook
-    *.tsx           # FileList, DiffView, DiffTable, CommitHistory, CommentEditor, CommentThread
+    pierre-diff.ts  # Server-hunk -> Pierre metadata adapter and anchor keys
+    components/    # DiffView, FilePreview, CommitFileView, AnchorThreads, file lists, comments
   mcp/
     server.ts       # MCP stdio server + 4 tools
     client.ts       # Global discovery, cwd project binding, typed HTTP helpers

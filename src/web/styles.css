@@ -18,23 +18,6 @@ body {
   color: var(--text-color-kumo-default);
 }
 
-.syntax-token {
-  color: var(--syntax-light);
-}
-
-html[data-mode="dark"] .syntax-token {
-  color: var(--syntax-dark);
-}
-
-/* Diff row tints — slightly softened versions of kumo's status tints. */
-.diff-add {
-  background-color: color-mix(in oklab, var(--color-kumo-success-tint) 70%, transparent);
-}
-
-.diff-del {
-  background-color: color-mix(in oklab, var(--color-kumo-danger-tint) 70%, transparent);
-}
-
 /*
  * Markdown comment bodies (GFM) — compact review-comment typography scoped to
  * .ds-md so Kumo's own prose is unaffected.
