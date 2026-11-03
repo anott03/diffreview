@@ -1,4 +1,4 @@
-import { diffFilePath, type DiffFile } from "../shared/types";
+import { diffFilePath, type DiffFile } from "./diff-model";
 
 export type FileTreeNode<T = DiffFile> =
   | { kind: "file"; name: string; path: string; file: T }

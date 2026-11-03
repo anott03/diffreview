@@ -14,7 +14,7 @@
 import { Context, Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import type { Stream as StreamT } from "effect";
 import type { DiffFile } from "../shared/types";
-import { parseGitDiff } from "./diff";
+import { parseGitDiff } from "../core/parse-diff";
 import { Git, GitError } from "./git";
 import { CommentStore, type StoreError } from "./store";
 

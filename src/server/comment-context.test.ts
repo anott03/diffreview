@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contextFromDiff, contextFromHead } from "./comment-context";
-import { parseGitDiff } from "./diff";
+import { parseGitDiff } from "../core/parse-diff";
 
 const anchor = { file: "a.txt", side: "new" as const, line: 2, lineText: "TWO" };
 

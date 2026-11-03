@@ -1,4 +1,4 @@
-import type { DiffFile, DiffHunk, DiffLine } from "../shared/types";
+import type { DiffFile, DiffHunk, DiffLine } from "./diff-model";
 
 export interface ContextGap {
   id: number;

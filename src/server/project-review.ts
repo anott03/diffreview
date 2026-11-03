@@ -9,7 +9,7 @@ import { errMessage } from "./error-message";
 import { Git } from "./git";
 import { CommentStore, type CommentFilter, type CreateCommentInput, type UpdateCommentInput } from "./store";
 import { Watcher } from "./watcher";
-import { normalizeTextLines } from "./text-lines";
+import { normalizeTextLines } from "../core/text-lines";
 import { isWorkingTreePath, listWorkingTreeFiles, readWorkingTreeFile } from "./worktree-files";
 
 const toError = flow(errMessage, (error) => Effect.fail(new InternalError({ error })));

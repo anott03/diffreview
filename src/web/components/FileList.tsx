@@ -13,7 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMemo, type ReactNode } from "react";
 import type { DiffFileStatus } from "../../shared/types";
-import { buildPathTree, type FileTreeNode } from "../file-tree";
+import { buildPathTree, type FileTreeNode } from "../../core/file-tree";
 
 const STATUS_META = {
   added: { icon: FilePlusIcon, className: "text-kumo-success", label: "added" },

@@ -1,14 +1,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import type { ChangeContent, ContextContent, FileDiffMetadata, Hunk } from "@pierre/diffs";
-import type { CommentSide, DiffFile, DiffHunk, DiffLine } from "../shared/types";
-import { textLines } from "./diff-context";
+import { textLines } from "../core/diff-context";
+import type { DiffFile, DiffHunk, DiffLine } from "../core/diff-model";
 
 export const DIFF_THEMES = { light: "github-light", dark: "github-dark" } as const;
-
-export function anchorKey(side: CommentSide, line: number): string {
-  return `${side}:${line}`;
-}
 
 export interface CompleteDiffContent {
   content: string;
@@ -160,15 +156,4 @@ export function toFileDiffMetadata(file: DiffFile, complete: CompleteDiffContent
   };
   if (file.status === "renamed" && file.oldPath) metadata.prevName = file.oldPath;
   return metadata;
-}
-
-export function visibleDiffLines(file: DiffFile): Map<string, string> {
-  const visible = new Map<string, string>();
-  for (const hunk of file.hunks) {
-    for (const line of hunk.lines) {
-      if (line.oldLine !== undefined) visible.set(anchorKey("old", line.oldLine), line.content);
-      if (line.newLine !== undefined) visible.set(anchorKey("new", line.newLine), line.content);
-    }
-  }
-  return visible;
 }

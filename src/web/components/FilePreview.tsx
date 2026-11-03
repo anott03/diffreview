@@ -5,7 +5,7 @@ import { File } from "@pierre/diffs/react";
 import { useEffect, useMemo, useState } from "react";
 import type { Comment, CreateCommentRequest, FileContent } from "../../shared/types";
 import type { CommentDraftProps } from "../comment-draft";
-import { textLines } from "../diff-context";
+import { textLines } from "../../core/diff-context";
 import { useColorMode } from "../use-color-mode";
 import { AddCommentButton } from "./AddCommentButton";
 import { AnchorThreads } from "./AnchorThreads";
