@@ -1,6 +1,6 @@
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/react";
-import type { ColorMode } from "../use-color-mode";
-import { DIFF_THEMES } from "../pierre-diff";
+import type { ColorMode } from "./use-color-mode";
+import { DIFF_THEMES } from "./pierre-diff";
 
 export const DIFF_UNSAFE_CSS = `
   :host {

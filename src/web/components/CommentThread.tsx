@@ -1,8 +1,8 @@
 import { Badge, Button } from "@cloudflare/kumo";
 import { ArrowCounterClockwise, ArrowRight, Check, Trash } from "@phosphor-icons/react";
 import type { Comment } from "../../shared/types";
+import { Markdown } from "../../ui/Markdown";
 import { CommentContext } from "./CommentContext";
-import { Markdown } from "./Markdown";
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));

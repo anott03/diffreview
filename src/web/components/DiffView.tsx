@@ -1,31 +1,21 @@
-import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Collapsible } from "@cloudflare/kumo/components/collapsible";
 import type { DiffLineAnnotation, FileDiffMetadata, FileDiffOptions } from "@pierre/diffs/react";
 import { FileDiff } from "@pierre/diffs/react";
-import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Comment, CreateCommentRequest, DiffFile, DiffLine, FileContent } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
 import type { CommentDraftProps } from "../comment-draft";
 import { diffWithContext, validateDiffContent } from "../../core/diff-context";
 import { anchorKey, visibleDiffLines } from "../../core/diff-model";
-import { toFileDiffMetadata, type CompleteDiffContent } from "../pierre-diff";
-import { useColorMode } from "../use-color-mode";
-import { AddCommentButton } from "./AddCommentButton";
+import { AddCommentButton } from "../../ui/AddCommentButton";
+import { CommentEditor } from "../../ui/CommentEditor";
+import { DiffFileHeader, type Layout } from "../../ui/DiffFileHeader";
+import { toFileDiffMetadata, type CompleteDiffContent } from "../../ui/pierre-diff";
+import { diffOptions } from "../../ui/pierre-options";
+import { useColorMode } from "../../ui/use-color-mode";
 import { AnchorThreads } from "./AnchorThreads";
-import { CommentEditor } from "./CommentEditor";
 import { CommentThread } from "./CommentThread";
-import { diffOptions } from "./pierre-options";
-
-export type Layout = "unified" | "split";
-
-export const STATUS_BADGE = {
-  added: { variant: "success", label: "added" },
-  deleted: { variant: "error", label: "deleted" },
-  modified: { variant: "warning", label: "modified" },
-  renamed: { variant: "info", label: "renamed" },
-} satisfies Record<DiffFile["status"], { variant: "success" | "error" | "warning" | "info"; label: string }>;
 
 type LoadDiffFiles = NonNullable<FileDiffOptions<string, undefined>["loadDiffFiles"]>;
 type PostRender = NonNullable<FileDiffOptions<string, undefined>["onPostRender"]>;
@@ -245,37 +235,13 @@ function ReviewDiff({
     onDraftChange({ side, line: hovered.lineNumber, lineText, body: "" });
   };
 
-  const status = STATUS_BADGE[file.status];
-
   return (
     <Collapsible.Root
       open={!collapsed}
       onOpenChange={() => onToggleCollapse()}
       className="flex flex-col"
     >
-      <div className="sticky top-0 z-10 flex h-10 items-center gap-2 border-b border-kumo-line bg-kumo-elevated px-4">
-        <Collapsible.Trigger
-          render={
-            <Button
-              shape="square"
-              variant="ghost"
-              size="sm"
-              aria-label={collapsed ? "Expand diff" : "Collapse diff"}
-            />
-          }
-        >
-          {collapsed ? <CaretRightIcon size={16} /> : <CaretDownIcon size={16} />}
-        </Collapsible.Trigger>
-        <Badge variant={status.variant}>{status.label}</Badge>
-        <span className="font-mono text-sm">
-          {file.status === "renamed" ? `${file.oldPath} → ${file.newPath}` : path}
-        </span>
-        <span className="flex-1" />
-        <span className="font-mono text-xs">
-          <span className="text-kumo-success">+{file.additions}</span>{" "}
-          <span className="text-kumo-danger">−{file.deletions}</span>
-        </span>
-      </div>
+      <DiffFileHeader file={file} collapsed={collapsed} />
 
       <Collapsible.Panel>
         {editing && !draftKey && (

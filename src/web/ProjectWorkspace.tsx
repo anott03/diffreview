@@ -7,11 +7,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Comment, CommentStatus, CreateCommentRequest, DiffFile } from "../shared/types";
 import { diffFilePath } from "../shared/types";
+import type { Layout } from "../ui/DiffFileHeader";
+import { EmptyState } from "../ui/EmptyState";
+import { FileList } from "../ui/FileList";
 import { createProjectApi } from "./api";
+import { CommentCountBadge } from "./components/CommentCountBadge";
 import { CommitHistory } from "./components/CommitHistory";
-import { DiffView, type Layout } from "./components/DiffView";
-import { EmptyState } from "./components/EmptyState";
-import { FileList } from "./components/FileList";
+import { DiffView } from "./components/DiffView";
 import { FilePreview } from "./components/FilePreview";
 import { RetainedDrafts } from "./components/RetainedDrafts";
 import { filterComments } from "./comment-filter";
@@ -302,7 +304,7 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
           <>
             <FileList
               title={sidebarTitle}
-              commentLabel={commentStatus === "all" ? "comments" : `${commentStatus} comments`}
+              renderFileBadge={(path) => <CommentCountBadge count={commentCounts.get(path) ?? 0} status={commentStatus} />}
               header={(
                 <div className="grid grid-cols-2 gap-2 [&>div]:min-w-0">
                   {fileModeSelect}
@@ -331,9 +333,8 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
                 ) : null
               )}
               files={sidebarPaths.map((path) => {
-                const entry = { path, commentCount: commentCounts.get(path) ?? 0 };
                 const change = changesByPath.get(path);
-                return change ? { ...entry, change } : entry;
+                return change ? { path, change } : { path };
               })}
               selectedPath={selectedPath}
               onSelect={selectFile}
@@ -363,7 +364,10 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
                 fileMode === "all" ? (
                   <p className="px-4 py-6 text-sm text-kumo-subtle">Select a file to preview its contents.</p>
                 ) : (
-                  <EmptyState />
+                  <EmptyState
+                    title="Working tree clean"
+                    description="No uncommitted changes to review. Switch to All files to browse the project and its saved comments."
+                  />
                 )
               )}
               {files.map((file) => {

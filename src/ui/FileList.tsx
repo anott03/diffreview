@@ -12,8 +12,8 @@ import {
   NotePencilIcon,
 } from "@phosphor-icons/react";
 import { useMemo, type ReactNode } from "react";
-import type { DiffFileStatus } from "../../shared/types";
-import { buildPathTree, type FileTreeNode } from "../../core/file-tree";
+import type { DiffFileStatus } from "../core/diff-model";
+import { buildPathTree, type FileTreeNode } from "../core/file-tree";
 
 const STATUS_META = {
   added: { icon: FilePlusIcon, className: "text-kumo-success", label: "added" },
@@ -25,7 +25,6 @@ const STATUS_META = {
 export interface FileListEntry {
   path: string;
   change?: { status: DiffFileStatus; additions: number; deletions: number };
-  commentCount: number;
 }
 
 interface FileListProps {
@@ -33,20 +32,20 @@ interface FileListProps {
   title?: string;
   header?: ReactNode;
   notice?: ReactNode;
-  commentLabel?: string;
+  renderFileBadge?: (path: string) => ReactNode;
   selectedPath: string | null;
   onSelect: (path: string) => void;
   collapsedDirectories: Set<string>;
   onToggleDirectory: (path: string) => void;
 }
 
-export function FileList({ files, title = "Changed files", header, notice, commentLabel = "open comments", selectedPath, onSelect, collapsedDirectories, onToggleDirectory }: FileListProps) {
+export function FileList({ files, title = "Changed files", header, notice, renderFileBadge, selectedPath, onSelect, collapsedDirectories, onToggleDirectory }: FileListProps) {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const tree = useMemo(() => buildPathTree(files, (file) => file.path), [files]);
 
   const renderFile = (file: FileListEntry, name: string, depth: number) => {
-    const { path, change, commentCount } = file;
+    const { path, change } = file;
     const meta = change ? STATUS_META[change.status] : undefined;
     const Icon = meta?.icon ?? FileIcon;
     const label = meta ? `${path} (${meta.label})` : path;
@@ -64,11 +63,7 @@ export function FileList({ files, title = "Changed files", header, notice, comme
           onClick={() => onSelect(path)}
         >
           <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
-          {commentCount > 0 && (
-            <Sidebar.MenuBadge className={commentLabel === "open comments" ? "border-kumo-warning/50 text-kumo-warning" : undefined} title={`${commentCount} ${commentLabel}`}>
-              {commentCount}
-            </Sidebar.MenuBadge>
-          )}
+          {renderFileBadge?.(path)}
           {change && (
             <span className="shrink-0 font-mono text-xs">
               <span className="text-kumo-success">+{change.additions}</span>{" "}
