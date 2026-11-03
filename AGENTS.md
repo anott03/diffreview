@@ -262,6 +262,10 @@ src/
 - The symbol-name rule excludes JSX attribute names so component APIs such
   as Kumo's `shape` prop remain usable. Preserve this adjustment when updating
   the vendored plugin.
+- `@effect/tsgo` adds Effect diagnostics to `tsc` and the language server. The
+  `prepare` script patches `typescript` in `node_modules` when dependencies are
+  installed.
+  Effect errors fail `pnpm typecheck`; warnings and suggestions are only printed.
 
 ### Comment anchoring rule
 

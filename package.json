@@ -22,7 +22,8 @@
     "lint": "oxlint",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepare": "effect-tsgo patch --typescript --no-oxlint"
   },
   "dependencies": {
     "@cloudflare/kumo": "^2.8.0",
@@ -54,6 +55,7 @@
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "@effect/tsgo": "0.64.1"
   }
 }
