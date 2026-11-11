@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -104,6 +104,27 @@ describe("Git.getDiffFiles", () => {
   it("returns an empty array for a clean repo", async () => {
     const dir = await makeRepo();
     expect(await run(Git.use((g) => g.getDiffFiles(dir)))).toEqual([]);
+  });
+});
+
+describe("Git.collectState", () => {
+  it("does not refresh the index during read-only polling", async () => {
+    const dir = await makeRepo();
+    const indexPath = join(dir, ".git", "index");
+    const before = await readFile(indexPath);
+    // Keep the contents clean but invalidate Git's cached stat information.
+    const changedTime = new Date("2030-01-01T00:00:00Z");
+    await utimes(join(dir, "a.txt"), changedTime, changedTime);
+
+    const state = await run(Git.use((g) => g.collectState(dir)));
+    expect(state.diffText).toBe("");
+    expect(await readFile(indexPath)).toEqual(before);
+
+    // Control: a normal status refresh would rewrite this stale index.
+    await execFileAsync("git", ["status", "--porcelain=v1"], {
+      cwd: dir, env: { ...process.env, GIT_OPTIONAL_LOCKS: "1" }
+    });
+    expect(await readFile(indexPath)).not.toEqual(before);
   });
 });
 
