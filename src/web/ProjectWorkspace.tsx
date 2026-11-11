@@ -1,7 +1,6 @@
 import { Button } from "@cloudflare/kumo/components/button";
 import { Loader } from "@cloudflare/kumo/components/loader";
 import { Select } from "@cloudflare/kumo/components/select";
-import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { useKumoToastManager } from "@cloudflare/kumo/components/toast";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -9,6 +8,7 @@ import type { Comment, CommentStatus, CreateCommentRequest, DiffFile } from "../
 import { diffFilePath } from "../shared/types";
 import { createProjectApi } from "./api";
 import { CommitHistory } from "./components/CommitHistory";
+import { DiffControls } from "./components/DiffControls";
 import { DiffView, type Layout } from "./components/DiffView";
 import { EmptyState } from "./components/EmptyState";
 import { FileList } from "./components/FileList";
@@ -259,30 +259,14 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
           <Button variant="secondary" size="sm" onClick={() => void refresh()}>Retry</Button>
         </div>
       )}
-      {active && !previewPath && toolbarContainer && createPortal(
-        <div role="group" aria-label="Diff controls" className="flex shrink-0 items-center gap-3">
-          {!historyMode && (
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={files.length === 0}
-              onClick={() => setCollapsedPaths(allCollapsed ? new Set() : new Set(files.map(diffFilePath)))}
-            >
-              {allCollapsed ? "Expand all" : "Collapse all"}
-            </Button>
-          )}
-          <Tabs
-            size="sm"
-            tabs={[
-              { value: "unified", label: "Unified" },
-              { value: "split", label: "Split" },
-            ]}
-            value={layout}
-            onValueChange={(value) => {
-              if (value === "unified" || value === "split") onLayoutChange(value);
-            }}
-          />
-        </div>,
+      {active && !previewPath && !historyMode && toolbarContainer && createPortal(
+        <DiffControls
+          layout={layout}
+          onLayoutChange={onLayoutChange}
+          disabled={files.length === 0}
+          allCollapsed={allCollapsed}
+          onToggleAll={() => setCollapsedPaths(allCollapsed ? new Set() : new Set(files.map(diffFilePath)))}
+        />,
         toolbarContainer
       )}
 
@@ -406,7 +390,9 @@ export function ProjectWorkspace({ projectId, active, revision, connectionVersio
           api={api}
           active={active}
           visible={historyMode}
+          toolbarContainer={toolbarContainer}
           layout={layout}
+          onLayoutChange={onLayoutChange}
           header={fileModeSelect}
         />
       </div>
