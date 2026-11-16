@@ -90,7 +90,8 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
 - The file sidebar uses `core/file-tree.ts` to group canonical paths into a
   folders-first tree. Folders start expanded; collapsed directory state lives
   in ProjectWorkspace so it survives mode switches and refreshes. The collapsed
-  sidebar rail keeps direct file shortcuts.
+  sidebar rail keeps direct file shortcuts. `ui/FileList.tsx` knows nothing about
+  comments: ProjectWorkspace fills its `renderFileBadge` slot with `CommentCountBadge`.
 - The sidebar header switches between Changed files, All files, and Commits, with
   project-local mode state. All files uses `/api/projects/:projectId/files` to list
   tracked and nonignored untracked working-tree files. Unchanged files open a
@@ -107,7 +108,7 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   The preview displays at most 10,000 lines. Current matching new-side comments appear inline;
   historical, outdated and old-side comments retain saved context above the file.
   Browser diffs and previews use `@pierre/diffs@1.6.2` React `FileDiff` / `File`.
-  `web/pierre-diff.ts` adapts server hunks directly to Pierre metadata, preserving
+  `ui/pierre-diff.ts` adapts server hunks directly to Pierre metadata, preserving
   line identities without running another diff algorithm. Versioned SHA-256 cache
   keys cover paths, hunk structure/line positions/text, partial/full state, and both
   complete contents when loaded. Revision/reconnection IDs are not highlight-cache
@@ -115,9 +116,10 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   to the accepted full-content identity, never just the partial patch's identity.
   Commit diffs receive partial metadata without loaders, gutter utilities,
   annotations, or editors.
-  `main.tsx` owns one worker pool, capped at three workers. Pierre handles syntax
+  `ui/DiffWorkerPoolProvider.tsx` owns one worker pool, capped at three workers, and
+  `main.tsx` mounts it once at the root. Pierre handles syntax
   highlighting and word-level inline changes, using github-light/github-dark.
-  `use-color-mode.ts` subscribes to the root `data-mode` attribute.
+  `ui/use-color-mode.ts` subscribes to the root `data-mode` attribute.
   DiffView's lazy loader reads the same file endpoint with `context=true` and the
   expected `reviewId` before Pierre can expand unchanged code. The response includes
   bounded `baseContent` and `reviewId` fields. `core/diff-context.ts` reconstructs both
@@ -132,7 +134,7 @@ MCP cwd → canonical working tree → global discovery → project-scoped HTTP
   scoped to the accepted snapshot. Hidden comments remain accessible with saved context.
   Pierre annotations stay in light DOM slots, so Kumo/Tailwind styles and React
   focus/events work without injecting the application stylesheet into Shadow DOM.
-  `components/pierre-options.ts` owns the small internal CSS/token overrides.
+  `ui/pierre-options.ts` owns the small internal CSS/token overrides.
   `AnchorThreads` shares controlled annotation content between diffs and previews.
   Only matching, rendered side/line/text anchors get inline annotations; hidden or
   stale drafts use the saved-text editor above the diff. Keep Pierre mounted across
@@ -203,6 +205,15 @@ src/
     file-tree.ts    # Folders-first tree of canonical paths
     text-lines.ts   # CRLF normalization
     test-fixtures/  # Test-only diff fixtures (excluded from core typecheck)
+  ui/               # Backend-agnostic rendering; imports only core, React, Kumo, Pierre
+    pierre-diff.ts  # DiffFile -> Pierre metadata adapter and cache keys
+    pierre-options.ts # Pierre themes, render options and CSS overrides
+    DiffWorkerPoolProvider.tsx # The single Pierre worker pool
+    use-color-mode.ts # Subscribes to the root data-mode attribute
+    DiffFileHeader.tsx # Collapse trigger, status, path and counts; owns Layout
+    FileList.tsx    # Tree sidebar with selection, collapse and a file badge slot
+    styles.css      # Tailwind source for src/ui and Markdown styles
+                    # Also: Markdown, CommentEditor, ThemeToggle, EmptyState, AddCommentButton
   shared/types.ts   # Cross-process contracts; re-exports the core diff model
   server/
     cli.ts          # serve/open commands, launcher and foreground runtime
@@ -226,8 +237,7 @@ src/
     ProjectWorkspace.tsx # Project-local review UI, reads, mutations and toasts
     project-tabs.ts # Storage restoration and tab navigation helpers
     api.ts          # Global operations, project-bound clients, one SSE hook
-    pierre-diff.ts  # Server-hunk -> Pierre metadata adapter
-    components/    # DiffView, FilePreview, CommitFileView, AnchorThreads, file lists, comments
+    components/    # DiffView, FilePreview, CommitFileView, AnchorThreads, comment threads
   mcp/
     server.ts       # MCP stdio server + 4 tools
     client.ts       # Global discovery, cwd project binding, typed HTTP helpers
@@ -239,13 +249,21 @@ src/
 ### Type sharing
 
 - `src/core/` owns the diff model and pure diff helpers. It must not import
-  application code (`server`, `web`, `mcp`, `shared`, `dev`), Node builtins,
+  application code (`server`, `web`, `mcp`, `shared`, `dev`, `ui`), Node builtins,
   Effect, Pierre, React or Kumo; `.oxlintrc.json` enforces this.
   `tsconfig.core.json` typechecks core production sources with ES2022 only (no
   DOM or Node types) and runs as part of `pnpm typecheck`.
 - `core/diff-model.ts` is dependency-free. `core/parse-diff.ts` is the only core
   module with a third-party runtime dependency (`parse-diff`). Test fixtures
   live in `core/test-fixtures/` and are excluded from the core typecheck.
+- `src/ui/` owns rendering that any review backend can reuse. It may import only
+  `src/core`, React, Kumo, Pierre and their rendering helpers (`@phosphor-icons/react`,
+  `react-markdown`, `remark-gfm`, `@noble/hashes`), so it uses `core/diff-model.ts`
+  rather than `shared/types.ts`. `.oxlintrc.json` enforces this with one allowlist
+  group of negated gitignore patterns, because Oxlint silently ignores regex
+  lookaround. Its relative exceptions (`./**`, `../core/**`) assume `src/ui` stays
+  flat. A prop that only one consumer needs becomes a slot or stays in `src/web`;
+  comment threads and drafts stay in `src/web`.
 - `src/shared/types.ts` must stay dependency-free. Never import `effect`,
   `zod`, or React there. It re-exports the diff model from
   `core/diff-model.ts`; it must not import `core/parse-diff.ts`.
@@ -316,14 +334,14 @@ src/
 - The project uses `@cloudflare/kumo` for components and tokens.
 - CSS source order matters: import `@cloudflare/kumo/styles.css` **before**
   Tailwind directives in `src/web/styles.css`.
-- The `@source "../web/**/*.{tsx,html}"` directive tells Tailwind v4 where to
-  scan for custom classes. Do not remove it or utility classes defined outside
-  Kumo may be purged.
+- Tailwind v4 auto-detects classes only under Vite's root (`src/web`). `src/web/styles.css`
+  imports `src/ui/styles.css`, whose `@source` covers `src/ui`, and declares its own
+  `@source` for Kumo. Do not remove either or their utility classes will be purged.
 - Kumo 2.8.0 quirks memo:
   - icon-only Buttons with `shape="square"` require `aria-label`.
   - Toast is `Toasty` + `useKumoToastManager().add({ title, variant })`.
   - `TooltipProvider` is a standalone export (no `Tooltip.Provider`).
-- **Theme toggle** (`src/web/components/ThemeToggle.tsx`) sets `data-mode` on `<html>` and persists
+- **Theme toggle** (`src/ui/ThemeToggle.tsx`) sets `data-mode` on `<html>` and persists
   the choice in `localStorage` under `diffreview-theme`. The inline script in `index.html`
   restores the saved choice before React hydrates; Kumo tokens and custom diff tints adapt
   automatically.

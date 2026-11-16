@@ -1,6 +1,6 @@
 import { Button } from "@cloudflare/kumo/components/button";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
-import type { Layout } from "./DiffView";
+import type { Layout } from "../../ui/DiffFileHeader";
 
 interface DiffControlsProps {
   layout: Layout;
