@@ -2,12 +2,14 @@ import { Button } from "@cloudflare/kumo/components/button";
 import { Loader } from "@cloudflare/kumo/components/loader";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { CommitSummary, GetCommitDiffResponse, ListCommitsResponse } from "../../shared/types";
 import { diffFilePath } from "../../shared/types";
 import { useNow } from "../use-relative-time";
 import { CommitFileView } from "./CommitFileView";
 import { CommitList, formatCommitDate } from "./CommitList";
 import type { Layout } from "./DiffView";
+import { DiffControls } from "./DiffControls";
 import { FileList } from "./FileList";
 
 const COMMIT_PAGE_SIZE = 200;
@@ -23,10 +25,12 @@ interface CommitHistoryProps {
   active: boolean;
   visible: boolean;
   layout: Layout;
+  onLayoutChange: (layout: Layout) => void;
+  toolbarContainer: HTMLDivElement | null;
   header?: ReactNode;
 }
 
-export function CommitHistory({ api, active, visible, layout, header }: CommitHistoryProps) {
+export function CommitHistory({ api, active, visible, layout, onLayoutChange, toolbarContainer, header }: CommitHistoryProps) {
   const [commits, setCommits] = useState<CommitSummary[] | null>(null);
   const [commitsError, setCommitsError] = useState<string | null>(null);
   const [commitsRetry, setCommitsRetry] = useState(0);
@@ -127,6 +131,7 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
   if (!visible) return null;
 
   const commitFiles = diff?.files ?? [];
+  const allCollapsed = commitFiles.length > 0 && commitFiles.every((file) => collapsed.has(diffFilePath(file)));
   const commitFileEntries = commitFiles.map((file) => {
     const path = diffFilePath(file);
     return {
@@ -148,6 +153,16 @@ export function CommitHistory({ api, active, visible, layout, header }: CommitHi
 
   return (
     <>
+      {active && toolbarContainer && createPortal(
+        <DiffControls
+          layout={layout}
+          onLayoutChange={onLayoutChange}
+          disabled={!diff || !!diffError || loadedDiffId.current !== selectedId || commitFiles.length === 0}
+          allCollapsed={allCollapsed}
+          onToggleAll={() => setCollapsed(allCollapsed ? new Set() : new Set(commitFiles.map(diffFilePath)))}
+        />,
+        toolbarContainer
+      )}
       {sidebarView === "commits" ? (
         <CommitList
           commits={commits}

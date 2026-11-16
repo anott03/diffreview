@@ -87,7 +87,13 @@ export class Git extends Context.Service<Git, {
       const run = Effect.fn("Git.run")(function*(root: string, args: string[]) {
         return yield* Effect.tryPromise({
           try: () =>
-            execFileAsync("git", args, { cwd: root, maxBuffer: GIT_BUFFER_BYTES }).then(
+            // Avoid index.lock during reads so polling does not block user Git
+            // commands. `diff` also needs its auto-refresh disabled explicitly.
+            execFileAsync("git", ["-c", "diff.autoRefreshIndex=false", ...args], {
+              cwd: root,
+              maxBuffer: GIT_BUFFER_BYTES,
+              env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }
+            }).then(
               (r) => r.stdout
             ),
           catch: (cause) => new GitError({ args, cause })
